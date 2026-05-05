@@ -8,18 +8,19 @@ import {
   comparePeriodSchema,
   commonFilterFields,
   contextFields,
-  deltaInfoSchema,
   deltaLimitSchema,
-  deltaModeSchema,
+  deltaInfoSchema,
   dimensionsField,
   groupBySchema,
   liveCursorSchema,
+  listModeSchema,
+  normalizeObservabilityListArgs,
   paginationArgsSchema,
   paginationInfoSchema,
   percentileField,
   percentileBucketValueField,
   percentilesSchema,
-  pageModeSchema,
+  refineObservabilityListMode,
   sortDirectionSchema,
   spanIdField,
   traceIdField,
@@ -191,58 +192,35 @@ export const metricsOrderBySchema = z
   })
   .describe('Order by configuration');
 
-/** Schema for listMetrics operation arguments */
-export const listMetricsPageArgsSchema = z
+export const listMetricsArgsSchema = z
   .object({
-    mode: pageModeSchema.optional().describe('Default paged list mode'),
+    mode: listModeSchema.optional().describe('List mode (defaults to page mode when omitted)'),
     filters: metricsFilterSchema.optional(),
-    pagination: paginationArgsSchema.default({ page: 0, perPage: 10 }).describe('Pagination settings'),
-    orderBy: metricsOrderBySchema
-      .default({ field: 'timestamp', direction: 'DESC' })
-      .describe('Ordering configuration (defaults to timestamp desc)'),
-  })
-  .strict()
-  .describe('Arguments for listing metrics in page mode');
-
-/** Schema for listMetrics delta polling arguments. */
-export const listMetricsDeltaArgsSchema = z
-  .object({
-    mode: deltaModeSchema,
-    filters: metricsFilterSchema.optional(),
+    pagination: paginationArgsSchema.optional().describe('Pagination settings'),
+    orderBy: metricsOrderBySchema.optional().describe('Ordering configuration'),
     after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
     limit: deltaLimitSchema,
   })
   .strict()
-  .describe('Arguments for listing metrics in delta mode');
-
-/** Schema for listMetrics operation arguments */
-export const listMetricsArgsSchema = z
-  .union([listMetricsPageArgsSchema, listMetricsDeltaArgsSchema])
+  .superRefine(refineObservabilityListMode)
+  .transform(value =>
+    normalizeObservabilityListArgs<MetricsFilter, z.output<typeof metricsOrderBySchema>>(value, {
+      orderBy: { field: 'timestamp', direction: 'DESC' } as const,
+    }),
+  )
   .describe('Arguments for listing metrics');
 
 /** Arguments for listing metrics */
 export type ListMetricsArgs = z.input<typeof listMetricsArgsSchema>;
 
-/** Schema for paged listMetrics responses. */
-export const listMetricsPageResponseSchema = z.object({
-  pagination: paginationInfoSchema,
-  liveCursor: liveCursorSchema
-    .nullable()
-    .optional()
-    .describe('Filtered snapshot watermark for subsequent delta polling'),
-  metrics: z.array(metricRecordSchema),
-});
-
-/** Schema for delta listMetrics responses. */
-export const listMetricsDeltaResponseSchema = z.object({
-  delta: deltaInfoSchema,
-  liveCursor: liveCursorSchema.nullable().describe('Resume cursor for the next delta poll'),
-  metrics: z.array(metricRecordSchema),
-});
-
 /** Schema for listMetrics operation response */
 export const listMetricsResponseSchema = z
-  .union([listMetricsPageResponseSchema, listMetricsDeltaResponseSchema])
+  .object({
+    pagination: paginationInfoSchema.optional(),
+    delta: deltaInfoSchema.optional(),
+    liveCursor: liveCursorSchema.nullable().optional().describe('Cursor for subsequent delta polling'),
+    metrics: z.array(metricRecordSchema),
+  })
   .describe('Response from listing metrics in either page or delta mode');
 
 /** Response containing paginated metrics */

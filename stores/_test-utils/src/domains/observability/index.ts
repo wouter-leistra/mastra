@@ -623,9 +623,11 @@ export function createObservabilityTests({ storage }: { storage: MastraStorage }
       describe('basic pagination', () => {
         it('should return empty list when no traces exist', async () => {
           const result = await observabilityStorage.listTraces({});
+          const pagination = result.pagination;
 
           expect(result.spans).toEqual([]);
-          expect(result.pagination.total).toBe(0);
+          expect(pagination).toBeDefined();
+          expect(pagination!.total).toBe(0);
         });
 
         it('should return root spans with pagination info', async () => {
@@ -634,11 +636,13 @@ export function createObservabilityTests({ storage }: { storage: MastraStorage }
           const result = await observabilityStorage.listTraces({
             pagination: { page: 0, perPage: 10 },
           });
+          const pagination = result.pagination;
 
           expect(result.spans.length).toBe(4);
-          expect(result.pagination.total).toBe(4);
-          expect(result.pagination.page).toBe(0);
-          expect(result.pagination.perPage).toBe(10);
+          expect(pagination).toBeDefined();
+          expect(pagination!.total).toBe(4);
+          expect(pagination!.page).toBe(0);
+          expect(pagination!.perPage).toBe(10);
         });
 
         it('should respect perPage limit', async () => {
@@ -647,9 +651,11 @@ export function createObservabilityTests({ storage }: { storage: MastraStorage }
           const result = await observabilityStorage.listTraces({
             pagination: { page: 0, perPage: 2 },
           });
+          const pagination = result.pagination;
 
           expect(result.spans.length).toBeLessThanOrEqual(2);
-          expect(result.pagination.perPage).toBe(2);
+          expect(pagination).toBeDefined();
+          expect(pagination!.perPage).toBe(2);
         });
 
         it('should handle page navigation', async () => {
@@ -662,11 +668,15 @@ export function createObservabilityTests({ storage }: { storage: MastraStorage }
           const page2 = await observabilityStorage.listTraces({
             pagination: { page: 1, perPage: 2 },
           });
+          const pagination1 = page1.pagination;
+          const pagination2 = page2.pagination;
 
           // Ensure different spans on different pages
           expect(page1.spans[0]?.traceId).not.toBe(page2.spans[0]?.traceId);
-          expect(page1.pagination.page).toBe(0);
-          expect(page2.pagination.page).toBe(1);
+          expect(pagination1).toBeDefined();
+          expect(pagination2).toBeDefined();
+          expect(pagination1!.page).toBe(0);
+          expect(pagination2!.page).toBe(1);
         });
       });
 
@@ -738,9 +748,11 @@ export function createObservabilityTests({ storage }: { storage: MastraStorage }
             filters: { entityId: 'non-existent-entity' },
             pagination: { page: 0, perPage: 10 },
           });
+          const pagination = result.pagination;
 
           expect(result.spans).toHaveLength(0);
-          expect(result.pagination.total).toBe(0);
+          expect(pagination).toBeDefined();
+          expect(pagination!.total).toBe(0);
         });
       });
 

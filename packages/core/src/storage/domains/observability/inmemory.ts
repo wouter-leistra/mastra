@@ -403,15 +403,14 @@ export class ObservabilityInMemory extends ObservabilityStorage {
       }));
 
     if (parsed.mode === 'delta') {
+      const limit = parsed.limit ?? 10;
       const baselineCursor =
-        parsed.after ??
-        this.maxLiveCursor(matching.map(entry => entry.liveCursor)) ??
-        this.createSyntheticNowCursor();
+        parsed.after ?? this.maxLiveCursor(matching.map(entry => entry.liveCursor)) ?? this.createSyntheticNowCursor();
 
       if (!parsed.after) {
         return {
           spans: [],
-          delta: { limit: parsed.limit, hasMore: false },
+          delta: { limit, hasMore: false },
           liveCursor: baselineCursor,
         };
       }
@@ -419,18 +418,19 @@ export class ObservabilityInMemory extends ObservabilityStorage {
       const updated = matching
         .filter(entry => entry.liveCursor && this.isCursorAfter(entry.liveCursor, parsed.after!))
         .sort((a, b) => this.compareLiveCursors(a.liveCursor!, b.liveCursor!));
-      const limited = updated.slice(0, parsed.limit + 1);
-      const hasMore = limited.length > parsed.limit;
-      const visible = hasMore ? limited.slice(0, parsed.limit) : limited;
+      const limited = updated.slice(0, limit + 1);
+      const hasMore = limited.length > limit;
+      const visible = hasMore ? limited.slice(0, limit) : limited;
 
       return {
         spans: toTraceSpans(visible.map(entry => entry.rootSpan)),
-        delta: { limit: parsed.limit, hasMore },
+        delta: { limit, hasMore },
         liveCursor: visible.length > 0 ? visible[visible.length - 1]!.liveCursor : parsed.after,
       };
     }
 
-    const { pagination, orderBy } = parsed;
+    const pagination = parsed.pagination ?? { page: 0, perPage: 10 };
+    const orderBy = parsed.orderBy ?? { field: 'startedAt', direction: 'DESC' as const };
     matching.sort((a, b) => {
       if (orderBy.field === 'endedAt') {
         const aVal = a.rootSpan.endedAt;
@@ -624,15 +624,14 @@ export class ObservabilityInMemory extends ObservabilityStorage {
     }
 
     if (parsed.mode === 'delta') {
+      const limit = parsed.limit ?? 10;
       const baselineCursor =
-        parsed.after ??
-        this.maxLiveCursor(matches.map(entry => entry.liveCursor)) ??
-        this.createSyntheticNowCursor();
+        parsed.after ?? this.maxLiveCursor(matches.map(entry => entry.liveCursor)) ?? this.createSyntheticNowCursor();
 
       if (!parsed.after) {
         return {
           branches: [],
-          delta: { limit: parsed.limit, hasMore: false },
+          delta: { limit, hasMore: false },
           liveCursor: baselineCursor,
         };
       }
@@ -640,18 +639,19 @@ export class ObservabilityInMemory extends ObservabilityStorage {
       const updated = matches
         .filter(entry => entry.liveCursor && this.isCursorAfter(entry.liveCursor, parsed.after!))
         .sort((a, b) => this.compareLiveCursors(a.liveCursor!, b.liveCursor!));
-      const limited = updated.slice(0, parsed.limit + 1);
-      const hasMore = limited.length > parsed.limit;
-      const visible = hasMore ? limited.slice(0, parsed.limit) : limited;
+      const limited = updated.slice(0, limit + 1);
+      const hasMore = limited.length > limit;
+      const visible = hasMore ? limited.slice(0, limit) : limited;
 
       return {
         branches: visible.map(entry => toTraceSpan(entry.span)),
-        delta: { limit: parsed.limit, hasMore },
+        delta: { limit, hasMore },
         liveCursor: visible.length > 0 ? visible[visible.length - 1]!.liveCursor : parsed.after,
       };
     }
 
-    const { pagination, orderBy } = parsed;
+    const pagination = parsed.pagination ?? { page: 0, perPage: 10 };
+    const orderBy = parsed.orderBy ?? { field: 'startedAt', direction: 'DESC' as const };
     matches.sort((a, b) => {
       if (orderBy.field === 'endedAt') {
         const aVal = a.span.endedAt;
@@ -826,7 +826,10 @@ export class ObservabilityInMemory extends ObservabilityStorage {
     for (const metric of args.metrics) {
       const record = metric as MetricRecord;
       this.db.metricRecords.push(record);
-      this.metricLiveCursors.set(this.metricTieBreaker(record, this.db.metricRecords.length - 1), this.mintLiveCursor(this.metricTieBreaker(record, this.db.metricRecords.length - 1)));
+      this.metricLiveCursors.set(
+        this.metricTieBreaker(record, this.db.metricRecords.length - 1),
+        this.mintLiveCursor(this.metricTieBreaker(record, this.db.metricRecords.length - 1)),
+      );
     }
   }
 
@@ -838,15 +841,14 @@ export class ObservabilityInMemory extends ObservabilityStorage {
     }));
 
     if (parsed.mode === 'delta') {
+      const limit = parsed.limit ?? 10;
       const baselineCursor =
-        parsed.after ??
-        this.maxLiveCursor(matching.map(entry => entry.liveCursor)) ??
-        this.createSyntheticNowCursor();
+        parsed.after ?? this.maxLiveCursor(matching.map(entry => entry.liveCursor)) ?? this.createSyntheticNowCursor();
 
       if (!parsed.after) {
         return {
           metrics: [],
-          delta: { limit: parsed.limit, hasMore: false },
+          delta: { limit, hasMore: false },
           liveCursor: baselineCursor,
         };
       }
@@ -854,23 +856,25 @@ export class ObservabilityInMemory extends ObservabilityStorage {
       const updated = matching
         .filter(entry => entry.liveCursor && this.isCursorAfter(entry.liveCursor, parsed.after!))
         .sort((a, b) => this.compareLiveCursors(a.liveCursor!, b.liveCursor!));
-      const limited = updated.slice(0, parsed.limit + 1);
-      const hasMore = limited.length > parsed.limit;
-      const visible = hasMore ? limited.slice(0, parsed.limit) : limited;
+      const limited = updated.slice(0, limit + 1);
+      const hasMore = limited.length > limit;
+      const visible = hasMore ? limited.slice(0, limit) : limited;
 
       return {
         metrics: visible.map(entry => entry.metric),
-        delta: { limit: parsed.limit, hasMore },
+        delta: { limit, hasMore },
         liveCursor: visible.length > 0 ? visible[visible.length - 1]!.liveCursor : parsed.after,
       };
     }
 
-    const dir = parsed.orderBy.direction === 'DESC' ? -1 : 1;
+    const orderBy = parsed.orderBy ?? { field: 'timestamp', direction: 'DESC' as const };
+    const pagination = parsed.pagination ?? { page: 0, perPage: 10 };
+    const dir = orderBy.direction === 'DESC' ? -1 : 1;
     matching.sort((a, b) => dir * (a.metric.timestamp.getTime() - b.metric.timestamp.getTime()));
 
     const total = matching.length;
-    const page = Number(parsed.pagination.page);
-    const perPage = Number(parsed.pagination.perPage);
+    const page = Number(pagination.page);
+    const perPage = Number(pagination.perPage);
     const start = page * perPage;
 
     return {
@@ -1373,7 +1377,10 @@ export class ObservabilityInMemory extends ObservabilityStorage {
     for (const log of args.logs) {
       const record = log as LogRecord;
       this.db.logRecords.push(record);
-      this.logLiveCursors.set(this.logTieBreaker(record, this.db.logRecords.length - 1), this.mintLiveCursor(this.logTieBreaker(record, this.db.logRecords.length - 1)));
+      this.logLiveCursors.set(
+        this.logTieBreaker(record, this.db.logRecords.length - 1),
+        this.mintLiveCursor(this.logTieBreaker(record, this.db.logRecords.length - 1)),
+      );
     }
   }
 
@@ -1387,15 +1394,14 @@ export class ObservabilityInMemory extends ObservabilityStorage {
       }));
 
     if (parsed.mode === 'delta') {
+      const limit = parsed.limit ?? 10;
       const baselineCursor =
-        parsed.after ??
-        this.maxLiveCursor(matching.map(entry => entry.liveCursor)) ??
-        this.createSyntheticNowCursor();
+        parsed.after ?? this.maxLiveCursor(matching.map(entry => entry.liveCursor)) ?? this.createSyntheticNowCursor();
 
       if (!parsed.after) {
         return {
           logs: [],
-          delta: { limit: parsed.limit, hasMore: false },
+          delta: { limit, hasMore: false },
           liveCursor: baselineCursor,
         };
       }
@@ -1403,23 +1409,25 @@ export class ObservabilityInMemory extends ObservabilityStorage {
       const updated = matching
         .filter(entry => entry.liveCursor && this.isCursorAfter(entry.liveCursor, parsed.after!))
         .sort((a, b) => this.compareLiveCursors(a.liveCursor!, b.liveCursor!));
-      const limited = updated.slice(0, parsed.limit + 1);
-      const hasMore = limited.length > parsed.limit;
-      const visible = hasMore ? limited.slice(0, parsed.limit) : limited;
+      const limited = updated.slice(0, limit + 1);
+      const hasMore = limited.length > limit;
+      const visible = hasMore ? limited.slice(0, limit) : limited;
 
       return {
         logs: visible.map(entry => entry.log),
-        delta: { limit: parsed.limit, hasMore },
+        delta: { limit, hasMore },
         liveCursor: visible.length > 0 ? visible[visible.length - 1]!.liveCursor : parsed.after,
       };
     }
 
-    const dir = parsed.orderBy.direction === 'DESC' ? -1 : 1;
+    const orderBy = parsed.orderBy ?? { field: 'timestamp', direction: 'DESC' as const };
+    const pagination = parsed.pagination ?? { page: 0, perPage: 10 };
+    const dir = orderBy.direction === 'DESC' ? -1 : 1;
     matching.sort((a, b) => dir * (a.log.timestamp.getTime() - b.log.timestamp.getTime()));
 
     const total = matching.length;
-    const page = Number(parsed.pagination.page);
-    const perPage = Number(parsed.pagination.perPage);
+    const page = Number(pagination.page);
+    const perPage = Number(pagination.perPage);
     const start = page * perPage;
 
     return {
@@ -1534,15 +1542,14 @@ export class ObservabilityInMemory extends ObservabilityStorage {
       }));
 
     if (parsed.mode === 'delta') {
+      const limit = parsed.limit ?? 10;
       const baselineCursor =
-        parsed.after ??
-        this.maxLiveCursor(matching.map(entry => entry.liveCursor)) ??
-        this.createSyntheticNowCursor();
+        parsed.after ?? this.maxLiveCursor(matching.map(entry => entry.liveCursor)) ?? this.createSyntheticNowCursor();
 
       if (!parsed.after) {
         return {
           scores: [],
-          delta: { limit: parsed.limit, hasMore: false },
+          delta: { limit, hasMore: false },
           liveCursor: baselineCursor,
         };
       }
@@ -1550,27 +1557,29 @@ export class ObservabilityInMemory extends ObservabilityStorage {
       const updated = matching
         .filter(entry => entry.liveCursor && this.isCursorAfter(entry.liveCursor, parsed.after!))
         .sort((a, b) => this.compareLiveCursors(a.liveCursor!, b.liveCursor!));
-      const limited = updated.slice(0, parsed.limit + 1);
-      const hasMore = limited.length > parsed.limit;
-      const visible = hasMore ? limited.slice(0, parsed.limit) : limited;
+      const limited = updated.slice(0, limit + 1);
+      const hasMore = limited.length > limit;
+      const visible = hasMore ? limited.slice(0, limit) : limited;
 
       return {
         scores: visible.map(entry => entry.score),
-        delta: { limit: parsed.limit, hasMore },
+        delta: { limit, hasMore },
         liveCursor: visible.length > 0 ? visible[visible.length - 1]!.liveCursor : parsed.after,
       };
     }
 
-    const dir = parsed.orderBy.direction === 'DESC' ? -1 : 1;
-    if (parsed.orderBy.field === 'score') {
+    const orderBy = parsed.orderBy ?? { field: 'timestamp', direction: 'DESC' as const };
+    const pagination = parsed.pagination ?? { page: 0, perPage: 10 };
+    const dir = orderBy.direction === 'DESC' ? -1 : 1;
+    if (orderBy.field === 'score') {
       matching.sort((a, b) => dir * (a.score.score - b.score.score));
     } else {
       matching.sort((a, b) => dir * (a.score.timestamp.getTime() - b.score.timestamp.getTime()));
     }
 
     const total = matching.length;
-    const page = Number(parsed.pagination.page);
-    const perPage = Number(parsed.pagination.perPage);
+    const page = Number(pagination.page);
+    const perPage = Number(pagination.perPage);
     const start = page * perPage;
 
     return {
@@ -1902,15 +1911,14 @@ export class ObservabilityInMemory extends ObservabilityStorage {
       }));
 
     if (parsed.mode === 'delta') {
+      const limit = parsed.limit ?? 10;
       const baselineCursor =
-        parsed.after ??
-        this.maxLiveCursor(matching.map(entry => entry.liveCursor)) ??
-        this.createSyntheticNowCursor();
+        parsed.after ?? this.maxLiveCursor(matching.map(entry => entry.liveCursor)) ?? this.createSyntheticNowCursor();
 
       if (!parsed.after) {
         return {
           feedback: [],
-          delta: { limit: parsed.limit, hasMore: false },
+          delta: { limit, hasMore: false },
           liveCursor: baselineCursor,
         };
       }
@@ -1918,23 +1926,25 @@ export class ObservabilityInMemory extends ObservabilityStorage {
       const updated = matching
         .filter(entry => entry.liveCursor && this.isCursorAfter(entry.liveCursor, parsed.after!))
         .sort((a, b) => this.compareLiveCursors(a.liveCursor!, b.liveCursor!));
-      const limited = updated.slice(0, parsed.limit + 1);
-      const hasMore = limited.length > parsed.limit;
-      const visible = hasMore ? limited.slice(0, parsed.limit) : limited;
+      const limited = updated.slice(0, limit + 1);
+      const hasMore = limited.length > limit;
+      const visible = hasMore ? limited.slice(0, limit) : limited;
 
       return {
         feedback: visible.map(entry => entry.feedback),
-        delta: { limit: parsed.limit, hasMore },
+        delta: { limit, hasMore },
         liveCursor: visible.length > 0 ? visible[visible.length - 1]!.liveCursor : parsed.after,
       };
     }
 
-    const dir = parsed.orderBy.direction === 'DESC' ? -1 : 1;
+    const orderBy = parsed.orderBy ?? { field: 'timestamp', direction: 'DESC' as const };
+    const pagination = parsed.pagination ?? { page: 0, perPage: 10 };
+    const dir = orderBy.direction === 'DESC' ? -1 : 1;
     matching.sort((a, b) => dir * (a.feedback.timestamp.getTime() - b.feedback.timestamp.getTime()));
 
     const total = matching.length;
-    const page = Number(parsed.pagination.page);
-    const perPage = Number(parsed.pagination.perPage);
+    const page = Number(pagination.page);
+    const perPage = Number(pagination.perPage);
     const start = page * perPage;
 
     return {

@@ -7,20 +7,21 @@ import {
   bucketTimestampField,
   comparePeriodSchema,
   commonFilterFields,
-  deltaInfoSchema,
   deltaLimitSchema,
-  deltaModeSchema,
+  deltaInfoSchema,
   experimentIdField,
   contextFields,
   dimensionsField,
   groupBySchema,
   liveCursorSchema,
+  listModeSchema,
+  normalizeObservabilityListArgs,
   paginationArgsSchema,
   paginationInfoSchema,
   percentileField,
   percentileBucketValueField,
   percentilesSchema,
-  pageModeSchema,
+  refineObservabilityListMode,
   sortDirectionSchema,
   spanIdField,
   traceIdField,
@@ -224,64 +225,35 @@ export const feedbackOrderBySchema = z
   })
   .describe('Order by configuration');
 
-/** Schema for listFeedback operation arguments */
-export const listFeedbackPageArgsSchema = z
+export const listFeedbackArgsSchema = z
   .object({
-    mode: pageModeSchema.optional().describe('Default paged list mode'),
-    filters: z
-      .preprocess(normalizeLegacyFeedbackActor, feedbackFilterObjectSchema)
-      .optional()
-      .describe('Optional filters to apply'),
-    pagination: paginationArgsSchema.default({ page: 0, perPage: 10 }).describe('Pagination settings'),
-    orderBy: feedbackOrderBySchema
-      .default({ field: 'timestamp', direction: 'DESC' })
-      .describe('Ordering configuration (defaults to timestamp desc)'),
-  })
-  .strict()
-  .describe('Arguments for listing feedback in page mode');
-
-/** Schema for listFeedback delta polling arguments. */
-export const listFeedbackDeltaArgsSchema = z
-  .object({
-    mode: deltaModeSchema,
-    filters: z
-      .preprocess(normalizeLegacyFeedbackActor, feedbackFilterObjectSchema)
-      .optional()
-      .describe('Optional filters to apply'),
+    mode: listModeSchema.optional().describe('List mode (defaults to page mode when omitted)'),
+    filters: z.preprocess(normalizeLegacyFeedbackActor, feedbackFilterObjectSchema).optional(),
+    pagination: paginationArgsSchema.optional().describe('Pagination settings'),
+    orderBy: feedbackOrderBySchema.optional().describe('Ordering configuration'),
     after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
     limit: deltaLimitSchema,
   })
   .strict()
-  .describe('Arguments for listing feedback in delta mode');
-
-/** Schema for listFeedback operation arguments */
-export const listFeedbackArgsSchema = z
-  .union([listFeedbackPageArgsSchema, listFeedbackDeltaArgsSchema])
+  .superRefine(refineObservabilityListMode)
+  .transform(value =>
+    normalizeObservabilityListArgs<FeedbackFilter, z.output<typeof feedbackOrderBySchema>>(value, {
+      orderBy: { field: 'timestamp', direction: 'DESC' } as const,
+    }),
+  )
   .describe('Arguments for listing feedback');
 
 /** Arguments for listing feedback */
 export type ListFeedbackArgs = z.input<typeof listFeedbackArgsSchema>;
 
-/** Schema for paged listFeedback responses. */
-export const listFeedbackPageResponseSchema = z.object({
-  pagination: paginationInfoSchema,
-  liveCursor: liveCursorSchema
-    .nullable()
-    .optional()
-    .describe('Filtered snapshot watermark for subsequent delta polling'),
-  feedback: z.array(feedbackRecordSchema),
-});
-
-/** Schema for delta listFeedback responses. */
-export const listFeedbackDeltaResponseSchema = z.object({
-  delta: deltaInfoSchema,
-  liveCursor: liveCursorSchema.nullable().describe('Resume cursor for the next delta poll'),
-  feedback: z.array(feedbackRecordSchema),
-});
-
 /** Schema for listFeedback operation response */
 export const listFeedbackResponseSchema = z
-  .union([listFeedbackPageResponseSchema, listFeedbackDeltaResponseSchema])
+  .object({
+    pagination: paginationInfoSchema.optional(),
+    delta: deltaInfoSchema.optional(),
+    liveCursor: liveCursorSchema.nullable().optional().describe('Cursor for subsequent delta polling'),
+    feedback: z.array(feedbackRecordSchema),
+  })
   .describe('Response from listing feedback in either page or delta mode');
 
 /** Response containing paginated feedback */

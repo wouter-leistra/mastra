@@ -2,17 +2,18 @@ import { z } from 'zod/v4';
 import { scoreRowDataSchema } from '../../../evals/types';
 import { SpanType } from '../../../observability/types';
 import {
-  deltaInfoSchema,
   deltaLimitSchema,
-  deltaModeSchema,
+  deltaInfoSchema,
   spanContextFields,
   dateRangeSchema,
   dbTimestamps,
   liveCursorSchema,
+  listModeSchema,
   metadataField,
+  normalizeObservabilityListArgs,
   paginationArgsSchema,
   paginationInfoSchema,
-  pageModeSchema,
+  refineObservabilityListMode,
   sortDirectionSchema,
   tagsField,
   traceIdField,
@@ -522,47 +523,33 @@ export const tracesOrderBySchema = z
  * Arguments for listing traces
  */
 export const listTracesArgsSchema = z
-  .union([
-    z
-      .object({
-        mode: pageModeSchema.optional().describe('Default paged list mode'),
-        filters: tracesFilterSchema.optional().describe('Optional filters to apply'),
-        pagination: paginationArgsSchema.default({ page: 0, perPage: 10 }).describe('Pagination settings'),
-        orderBy: tracesOrderBySchema
-          .default({ field: 'startedAt', direction: 'DESC' })
-          .describe('Ordering configuration (defaults to startedAt desc)'),
-      })
-      .strict(),
-    z
-      .object({
-        mode: deltaModeSchema,
-        filters: tracesFilterSchema.optional().describe('Optional filters to apply'),
-        after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
-        limit: deltaLimitSchema,
-      })
-      .strict(),
-  ])
+  .object({
+    mode: listModeSchema.optional().describe('List mode (defaults to page mode when omitted)'),
+    filters: tracesFilterSchema.optional().describe('Optional filters to apply'),
+    pagination: paginationArgsSchema.optional().describe('Pagination settings'),
+    orderBy: tracesOrderBySchema.optional().describe('Ordering configuration'),
+    after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
+    limit: deltaLimitSchema,
+  })
+  .strict()
+  .superRefine(refineObservabilityListMode)
+  .transform(value =>
+    normalizeObservabilityListArgs<z.output<typeof tracesFilterSchema>, z.output<typeof tracesOrderBySchema>>(value, {
+      orderBy: { field: 'startedAt', direction: 'DESC' } as const,
+    }),
+  )
   .describe('Arguments for listing traces');
 
 /** Arguments for listing traces with optional filters, pagination, and ordering */
 export type ListTracesArgs = z.input<typeof listTracesArgsSchema>;
 
 /** Schema for listTraces operation response */
-export const listTracesResponseSchema = z.union([
-  z.object({
-    pagination: paginationInfoSchema,
-    liveCursor: liveCursorSchema
-      .nullable()
-      .optional()
-      .describe('Filtered snapshot watermark for subsequent delta polling'),
-    spans: z.array(traceSpanSchema),
-  }),
-  z.object({
-    delta: deltaInfoSchema,
-    liveCursor: liveCursorSchema.nullable().describe('Resume cursor for the next delta poll'),
-    spans: z.array(traceSpanSchema),
-  }),
-]);
+export const listTracesResponseSchema = z.object({
+  pagination: paginationInfoSchema.optional(),
+  delta: deltaInfoSchema.optional(),
+  liveCursor: liveCursorSchema.nullable().optional().describe('Cursor for subsequent delta polling'),
+  spans: z.array(traceSpanSchema),
+});
 
 /** Response containing paginated root spans with computed status */
 export type ListTracesResponse = z.infer<typeof listTracesResponseSchema>;
@@ -639,26 +626,24 @@ export const branchesOrderBySchema = z
  * subtree.
  */
 export const listBranchesArgsSchema = z
-  .union([
-    z
-      .object({
-        mode: pageModeSchema.optional().describe('Default paged list mode'),
-        filters: branchesFilterSchema.optional().describe('Optional filters to apply'),
-        pagination: paginationArgsSchema.default({ page: 0, perPage: 10 }).describe('Pagination settings'),
-        orderBy: branchesOrderBySchema
-          .default({ field: 'startedAt', direction: 'DESC' })
-          .describe('Ordering configuration (defaults to startedAt desc)'),
-      })
-      .strict(),
-    z
-      .object({
-        mode: deltaModeSchema,
-        filters: branchesFilterSchema.optional().describe('Optional filters to apply'),
-        after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
-        limit: deltaLimitSchema,
-      })
-      .strict(),
-  ])
+  .object({
+    mode: listModeSchema.optional().describe('List mode (defaults to page mode when omitted)'),
+    filters: branchesFilterSchema.optional().describe('Optional filters to apply'),
+    pagination: paginationArgsSchema.optional().describe('Pagination settings'),
+    orderBy: branchesOrderBySchema.optional().describe('Ordering configuration'),
+    after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
+    limit: deltaLimitSchema,
+  })
+  .strict()
+  .superRefine(refineObservabilityListMode)
+  .transform(value =>
+    normalizeObservabilityListArgs<z.output<typeof branchesFilterSchema>, z.output<typeof branchesOrderBySchema>>(
+      value,
+      {
+        orderBy: { field: 'startedAt', direction: 'DESC' } as const,
+      },
+    ),
+  )
   .describe('Arguments for listing trace branches');
 
 /** Arguments for listing branches with optional filters, pagination, and ordering */
@@ -669,21 +654,12 @@ export type ListBranchesArgs = z.input<typeof listBranchesArgsSchema>;
  * anchor span -- repeated runs of the same entity within one parent trace
  * surface as separate rows.
  */
-export const listBranchesResponseSchema = z.union([
-  z.object({
-    pagination: paginationInfoSchema,
-    liveCursor: liveCursorSchema
-      .nullable()
-      .optional()
-      .describe('Filtered snapshot watermark for subsequent delta polling'),
-    branches: z.array(traceSpanSchema),
-  }),
-  z.object({
-    delta: deltaInfoSchema,
-    liveCursor: liveCursorSchema.nullable().describe('Resume cursor for the next delta poll'),
-    branches: z.array(traceSpanSchema),
-  }),
-]);
+export const listBranchesResponseSchema = z.object({
+  pagination: paginationInfoSchema.optional(),
+  delta: deltaInfoSchema.optional(),
+  liveCursor: liveCursorSchema.nullable().optional().describe('Cursor for subsequent delta polling'),
+  branches: z.array(traceSpanSchema),
+});
 
 /** Response containing paginated branch anchor spans with computed status */
 export type ListBranchesResponse = z.infer<typeof listBranchesResponseSchema>;

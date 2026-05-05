@@ -254,7 +254,7 @@ export function createObservabilityListQuerySchema<
         ...orderBySchema.shape,
         mode: listModeSchema.optional(),
         after: liveCursorSchema.optional(),
-        limit: deltaLimitSchema.optional(),
+        limit: deltaLimitSchema,
       })
       .partial(),
   ).superRefine((value, ctx) => {
