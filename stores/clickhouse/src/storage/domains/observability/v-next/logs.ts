@@ -1,10 +1,36 @@
 import type { ClickHouseClient } from '@clickhouse/client';
-import { listLogsArgsSchema } from '@mastra/core/storage';
 import type { BatchCreateLogsArgs, ListLogsArgs, ListLogsResponse, LiveCursor } from '@mastra/core/storage';
 
 import { TABLE_LOG_EVENTS } from './ddl';
 import { buildLogsFilterConditions, buildPaginationClause, buildSignalOrderByClause } from './filters';
-import { CH_INSERT_SETTINGS, CH_SETTINGS, createLiveCursor, createSyntheticNowCursor, logRecordToRow, rowToLogRecord } from './helpers';
+import {
+  CH_INSERT_SETTINGS,
+  CH_SETTINGS,
+  createLiveCursor,
+  createSyntheticNowCursor,
+  normalizeObservabilityListArgs,
+  toDateRangeOrUndefined,
+  toStringArrayOrUndefined,
+  toStringOrUndefined,
+  toUnknownRecordOrUndefined,
+  logRecordToRow,
+  rowToLogRecord,
+} from './helpers';
+
+type NormalizedLogsFilters = Parameters<typeof buildLogsFilterConditions>[0];
+
+function normalizeLogsFilters(filters: ListLogsArgs['filters']): NormalizedLogsFilters {
+  const record = toUnknownRecordOrUndefined(filters);
+  if (!record) return undefined;
+
+  return {
+    ...record,
+    timestamp: toDateRangeOrUndefined(record.timestamp),
+    source: toStringOrUndefined(record.source),
+    executionSource: toStringOrUndefined(record.executionSource),
+    level: Array.isArray(record.level) ? toStringArrayOrUndefined(record.level) : toStringOrUndefined(record.level),
+  } as NormalizedLogsFilters;
+}
 
 function rowToLogLiveCursor(row: Record<string, unknown>): LiveCursor | null {
   if (row.ingestedAt == null || row.logId == null) return null;
@@ -47,7 +73,10 @@ export async function batchCreateLogs(client: ClickHouseClient, args: BatchCreat
 }
 
 export async function listLogs(client: ClickHouseClient, args: ListLogsArgs): Promise<ListLogsResponse> {
-  const parsed = listLogsArgsSchema.parse(args);
+  const parsed = normalizeObservabilityListArgs<ListLogsArgs['filters'], NormalizedLogsFilters, { field: 'timestamp'; direction: 'ASC' | 'DESC' }>(args, {
+    orderBy: { field: 'timestamp', direction: 'DESC' } as const,
+    normalizeFilters: normalizeLogsFilters,
+  });
   const filter = buildLogsFilterConditions(parsed.filters, 'l');
   const whereClause = filter.conditions.length ? `WHERE ${filter.conditions.join(' AND ')}` : '';
 

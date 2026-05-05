@@ -1,4 +1,3 @@
-import { listLogsArgsSchema } from '@mastra/core/storage';
 import type { BatchCreateLogsArgs, ListLogsArgs, ListLogsResponse, LiveCursor } from '@mastra/core/storage';
 import type { DuckDBConnection } from '../../db/index';
 import { buildWhereClause, buildOrderByClause, buildPaginationClause } from './filters';
@@ -7,6 +6,7 @@ import {
   createLiveCursor,
   createSyntheticNowCursor,
   isLiveCursorAfter,
+  normalizeObservabilityListArgs,
   parseJson,
   parseJsonArray,
   toDate,
@@ -165,7 +165,9 @@ export async function batchCreateLogs(db: DuckDBConnection, args: BatchCreateLog
 
 /** Query log events with filtering, ordering, and pagination. */
 export async function listLogs(db: DuckDBConnection, args: ListLogsArgs): Promise<ListLogsResponse> {
-  const parsed = listLogsArgsSchema.parse(args);
+  const parsed = normalizeObservabilityListArgs(args, {
+    orderBy: { field: 'timestamp', direction: 'DESC' } as const,
+  });
   const filters = parsed.filters ?? {};
   const filter = buildWhereClause(filters as Record<string, unknown>);
 

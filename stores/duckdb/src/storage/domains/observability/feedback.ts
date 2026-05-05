@@ -15,11 +15,20 @@ import type {
   AggregationType,
   LiveCursor,
 } from '@mastra/core/storage';
-import { listFeedbackArgsSchema } from '@mastra/core/storage';
 import { parseFieldKey } from '@mastra/core/utils';
 import type { DuckDBConnection } from '../../db/index';
 import { buildWhereClause, buildOrderByClause, buildPaginationClause } from './filters';
-import { createIngestedAt, createLiveCursor, createSyntheticNowCursor, v, jsonV, toDate, parseJson, parseJsonArray } from './helpers';
+import {
+  createIngestedAt,
+  createLiveCursor,
+  createSyntheticNowCursor,
+  normalizeObservabilityListArgs,
+  v,
+  jsonV,
+  toDate,
+  parseJson,
+  parseJsonArray,
+} from './helpers';
 
 type LegacyFeedbackRecord = CreateFeedbackArgs['feedback'] & {
   source?: string | null;
@@ -383,7 +392,9 @@ export async function batchCreateFeedback(db: DuckDBConnection, args: BatchCreat
 
 /** Query feedback events with filtering, ordering, and pagination. */
 export async function listFeedback(db: DuckDBConnection, args: ListFeedbackArgs): Promise<ListFeedbackResponse> {
-  const parsed = listFeedbackArgsSchema.parse(args);
+  const parsed = normalizeObservabilityListArgs(args, {
+    orderBy: { field: 'timestamp', direction: 'DESC' } as const,
+  });
   const filters = parsed.filters ?? {};
   const filter = buildWhereClause(filters as Record<string, unknown>, {
     source: 'feedbackSource',

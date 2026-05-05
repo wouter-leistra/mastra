@@ -1,5 +1,5 @@
 import type { ClickHouseClient } from '@clickhouse/client';
-import { listMetricsArgsSchema, METRIC_DISTINCT_COLUMNS } from '@mastra/core/storage';
+import { METRIC_DISTINCT_COLUMNS } from '@mastra/core/storage';
 import type {
   AggregationInterval,
   AggregationType,
@@ -33,9 +33,34 @@ import {
   CH_SETTINGS,
   createLiveCursor,
   createSyntheticNowCursor,
+  normalizeObservabilityListArgs,
+  toDateRangeOrUndefined,
+  toStringArrayOrUndefined,
+  toStringOrUndefined,
+  toStringRecordOrUndefined,
+  toUnknownRecordOrUndefined,
   metricRecordToRow,
   rowToMetricRecord,
 } from './helpers';
+
+type NormalizedMetricsFilters = Parameters<typeof buildMetricsFilterConditions>[0];
+
+function normalizeMetricsFilters(filters: ListMetricsArgs['filters']): NormalizedMetricsFilters {
+  const record = toUnknownRecordOrUndefined(filters);
+  if (!record) return undefined;
+
+  return {
+    ...record,
+    timestamp: toDateRangeOrUndefined(record.timestamp),
+    name: toStringArrayOrUndefined(record.name),
+    source: toStringOrUndefined(record.source),
+    executionSource: toStringOrUndefined(record.executionSource),
+    provider: toStringOrUndefined(record.provider),
+    model: toStringOrUndefined(record.model),
+    costUnit: toStringOrUndefined(record.costUnit),
+    labels: toStringRecordOrUndefined(record.labels),
+  } as NormalizedMetricsFilters;
+}
 
 // ============================================================================
 // Helpers
@@ -292,7 +317,14 @@ export async function batchCreateMetrics(client: ClickHouseClient, args: BatchCr
 // ============================================================================
 
 export async function listMetrics(client: ClickHouseClient, args: ListMetricsArgs): Promise<ListMetricsResponse> {
-  const parsed = listMetricsArgsSchema.parse(args);
+  const parsed = normalizeObservabilityListArgs<
+    ListMetricsArgs['filters'],
+    NormalizedMetricsFilters,
+    { field: 'timestamp'; direction: 'ASC' | 'DESC' }
+  >(args, {
+    orderBy: { field: 'timestamp', direction: 'DESC' } as const,
+    normalizeFilters: normalizeMetricsFilters,
+  });
   const filter = buildMetricsFilterConditions(parsed.filters, 'm');
   const whereClause = filter.conditions.length ? `WHERE ${filter.conditions.join(' AND ')}` : '';
 

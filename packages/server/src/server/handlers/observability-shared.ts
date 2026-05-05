@@ -1,7 +1,7 @@
 import type { Mastra } from '@mastra/core';
 import { coreFeatures } from '@mastra/core/features';
 import type { MastraCompositeStore, ObservabilityStorage } from '@mastra/core/storage';
-import { deltaLimitSchema, liveCursorSchema, listModeSchema, paginationArgsSchema } from '@mastra/core/storage';
+import { deltaLimitSchema, liveCursorSchema, listModeSchema, paginationArgsSchema } from '@internal/core/storage';
 import { z } from 'zod/v4';
 import { HTTPException } from '../http-exception';
 import type { ServerRoute } from '../server-adapter/routes';

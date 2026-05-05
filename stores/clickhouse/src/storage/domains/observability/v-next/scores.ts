@@ -1,5 +1,4 @@
 import type { ClickHouseClient } from '@clickhouse/client';
-import { listScoresArgsSchema } from '@mastra/core/storage';
 import type {
   AggregationInterval,
   AggregationType,
@@ -28,9 +27,31 @@ import {
   CH_SETTINGS,
   createLiveCursor,
   createSyntheticNowCursor,
+  normalizeObservabilityListArgs,
+  toDateRangeOrUndefined,
+  toStringArrayOrUndefined,
+  toStringOrUndefined,
+  toUnknownRecordOrUndefined,
   rowToScoreRecord,
   scoreRecordToRow,
 } from './helpers';
+
+type NormalizedScoresFilters = Parameters<typeof buildScoresFilterConditions>[0];
+type ScoresOrderBy = { field: 'timestamp' | 'score'; direction: 'ASC' | 'DESC' };
+
+function normalizeScoresFilters(filters: ListScoresArgs['filters']): NormalizedScoresFilters {
+  const record = toUnknownRecordOrUndefined(filters);
+  if (!record) return undefined;
+
+  return {
+    ...record,
+    timestamp: toDateRangeOrUndefined(record.timestamp),
+    scorerId: Array.isArray(record.scorerId) ? toStringArrayOrUndefined(record.scorerId) : toStringOrUndefined(record.scorerId),
+    scoreSource: toStringOrUndefined(record.scoreSource),
+    source: toStringOrUndefined(record.source),
+    executionSource: toStringOrUndefined(record.executionSource),
+  } as NormalizedScoresFilters;
+}
 
 // ============================================================================
 // Helpers
@@ -211,7 +232,13 @@ export async function batchCreateScores(client: ClickHouseClient, args: BatchCre
 // ============================================================================
 
 export async function listScores(client: ClickHouseClient, args: ListScoresArgs): Promise<ListScoresResponse> {
-  const parsed = listScoresArgsSchema.parse(args);
+  const parsed = normalizeObservabilityListArgs<ListScoresArgs['filters'], NormalizedScoresFilters, ScoresOrderBy>(
+    args,
+    {
+      orderBy: { field: 'timestamp', direction: 'DESC' } satisfies ScoresOrderBy,
+      normalizeFilters: normalizeScoresFilters,
+    },
+  );
   const filter = buildScoresFilterConditions(parsed.filters, 's');
   const whereClause = filter.conditions.length ? `WHERE ${filter.conditions.join(' AND ')}` : '';
 

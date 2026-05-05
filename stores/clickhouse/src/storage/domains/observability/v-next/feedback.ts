@@ -1,5 +1,4 @@
 import type { ClickHouseClient } from '@clickhouse/client';
-import { listFeedbackArgsSchema } from '@mastra/core/storage';
 import type {
   AggregationInterval,
   AggregationType,
@@ -27,9 +26,36 @@ import {
   CH_SETTINGS,
   createLiveCursor,
   createSyntheticNowCursor,
+  normalizeObservabilityListArgs,
+  toDateRangeOrUndefined,
+  toStringArrayOrUndefined,
+  toStringOrUndefined,
+  toUnknownRecordOrUndefined,
   feedbackRecordToRow,
   rowToFeedbackRecord,
 } from './helpers';
+
+type NormalizedFeedbackFilters = Parameters<typeof buildFeedbackFilterConditions>[0];
+
+function normalizeFeedbackFilters(filters: ListFeedbackArgs['filters']): NormalizedFeedbackFilters {
+  const record = toUnknownRecordOrUndefined(filters);
+  if (!record) return undefined;
+
+  const feedbackUserId = toStringOrUndefined(record.feedbackUserId) ?? toStringOrUndefined(record.userId);
+
+  return {
+    ...record,
+    timestamp: toDateRangeOrUndefined(record.timestamp),
+    feedbackType: Array.isArray(record.feedbackType)
+      ? toStringArrayOrUndefined(record.feedbackType)
+      : toStringOrUndefined(record.feedbackType),
+    feedbackSource: toStringOrUndefined(record.feedbackSource),
+    source: toStringOrUndefined(record.source),
+    executionSource: toStringOrUndefined(record.executionSource),
+    feedbackUserId,
+    userId: undefined,
+  } as NormalizedFeedbackFilters;
+}
 
 // ============================================================================
 // Helpers
@@ -215,7 +241,14 @@ export async function batchCreateFeedback(client: ClickHouseClient, args: BatchC
 // ============================================================================
 
 export async function listFeedback(client: ClickHouseClient, args: ListFeedbackArgs): Promise<ListFeedbackResponse> {
-  const parsed = listFeedbackArgsSchema.parse(args);
+  const parsed = normalizeObservabilityListArgs<
+    ListFeedbackArgs['filters'],
+    NormalizedFeedbackFilters,
+    { field: 'timestamp'; direction: 'ASC' | 'DESC' }
+  >(args, {
+    orderBy: { field: 'timestamp', direction: 'DESC' } as const,
+    normalizeFilters: normalizeFeedbackFilters,
+  });
   const filter = buildFeedbackFilterConditions(parsed.filters, 'f');
   const whereClause = filter.conditions.length ? `WHERE ${filter.conditions.join(' AND ')}` : '';
 

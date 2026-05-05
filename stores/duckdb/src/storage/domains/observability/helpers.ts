@@ -85,3 +85,68 @@ export function maxLiveCursor(cursors: Iterable<LiveCursor>): LiveCursor | null 
   }
   return maxCursor;
 }
+
+// TODO(2.0): Replace this local coercion layer with shared observability parsing once runtime core-version compatibility is no longer required.
+type PaginationArgs = {
+  page?: unknown;
+  perPage?: unknown;
+};
+
+type ObservabilityListArgsLike<TFilters, TOrderBy> = {
+  mode?: 'page' | 'delta';
+  filters?: TFilters;
+  pagination?: PaginationArgs;
+  orderBy?: Partial<TOrderBy> | Record<string, unknown>;
+  after?: LiveCursor | { ingestedAt?: unknown; tieBreaker?: unknown };
+  limit?: unknown;
+};
+
+type NormalizedObservabilityListArgs<TFilters, TOrderBy> = {
+  mode: 'page' | 'delta';
+  filters: TFilters | undefined;
+  pagination: { page: number; perPage: number };
+  orderBy: TOrderBy;
+  after: LiveCursor | undefined;
+  limit: number;
+};
+
+export function normalizeObservabilityListArgs<TFilters, TOrderBy extends Record<string, unknown>>(
+  args: ObservabilityListArgsLike<TFilters, TOrderBy>,
+  defaults: {
+    orderBy: TOrderBy;
+    pagination?: { page: number; perPage: number };
+    limit?: number;
+  },
+): NormalizedObservabilityListArgs<TFilters, TOrderBy> {
+  const paginationDefaults = defaults.pagination ?? { page: 0, perPage: 10 };
+  const limitDefault = defaults.limit ?? 10;
+  const pagination = args.pagination ?? {};
+  const orderBy = args.orderBy ?? {};
+
+  return {
+    mode: args.mode === 'delta' ? 'delta' : 'page',
+    filters: args.filters,
+    pagination: {
+      page:
+        typeof pagination.page === 'number' && Number.isInteger(pagination.page) && pagination.page >= 0
+          ? pagination.page
+          : paginationDefaults.page,
+      perPage:
+        typeof pagination.perPage === 'number' &&
+        Number.isInteger(pagination.perPage) &&
+        pagination.perPage >= 1 &&
+        pagination.perPage <= 100
+          ? pagination.perPage
+          : paginationDefaults.perPage,
+    },
+    orderBy: { ...defaults.orderBy, ...orderBy } as TOrderBy,
+    after:
+      args.after && typeof args.after.tieBreaker === 'string'
+        ? createLiveCursor(args.after.ingestedAt, args.after.tieBreaker)
+        : undefined,
+    limit:
+      typeof args.limit === 'number' && Number.isInteger(args.limit) && args.limit >= 1 && args.limit <= 100
+        ? args.limit
+        : limitDefault,
+  };
+}

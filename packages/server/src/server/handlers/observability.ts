@@ -2,8 +2,8 @@ import type { Mastra } from '@mastra/core';
 import { extractTrajectoryFromTrace, listScoresResponseSchema } from '@mastra/core/evals';
 import { scoreTraces } from '@mastra/core/evals/scoreTraces';
 import type { ScoresStorage } from '@mastra/core/storage';
+import { liveCursorSchema } from '@internal/core/storage';
 import {
-  liveCursorSchema,
   tracesFilterSchema,
   tracesOrderBySchema,
   paginationArgsSchema,

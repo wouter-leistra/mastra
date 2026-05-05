@@ -6,12 +6,65 @@
  */
 
 import type { ClickHouseClient } from '@clickhouse/client';
-import { listTracesArgsSchema, toTraceSpans } from '@mastra/core/storage';
+import { toTraceSpans } from '@mastra/core/storage';
 import type { GetRootSpanArgs, GetRootSpanResponse, ListTracesArgs, ListTracesResponse, LiveCursor } from '@mastra/core/storage';
 
 import { TABLE_SPAN_EVENTS, TABLE_TRACE_ROOTS } from './ddl';
 import { buildTraceFilterConditions, buildTraceOrderByClause } from './filters';
-import { CH_SETTINGS, createLiveCursor, createSyntheticNowCursor, rowToSpanRecord } from './helpers';
+import {
+  CH_SETTINGS,
+  createLiveCursor,
+  createSyntheticNowCursor,
+  normalizeObservabilityListArgs,
+  rowToSpanRecord,
+  toBooleanOrUndefined,
+  toDateRangeOrUndefined,
+  toStringOrUndefined,
+  toStringRecordOrUndefined,
+  toUnknownRecordOrUndefined,
+} from './helpers';
+
+type NormalizedTraceFilters = Parameters<typeof buildTraceFilterConditions>[0];
+type TracesOrderBy = { field: 'startedAt' | 'endedAt'; direction: 'ASC' | 'DESC' };
+type NormalizedTraceStatus = Exclude<NormalizedTraceFilters, undefined>['status'];
+
+function normalizeTraceFilters(filters: ListTracesArgs['filters']): NormalizedTraceFilters {
+  const record = toUnknownRecordOrUndefined(filters);
+  if (!record) return undefined;
+
+  return {
+    ...record,
+    startedAt: toDateRangeOrUndefined(record.startedAt),
+    endedAt: toDateRangeOrUndefined(record.endedAt),
+    spanType: toStringOrUndefined(record.spanType),
+    entityType: toStringOrUndefined(record.entityType),
+    entityId: toStringOrUndefined(record.entityId),
+    entityName: toStringOrUndefined(record.entityName),
+    entityVersionId: toStringOrUndefined(record.entityVersionId),
+    parentEntityVersionId: toStringOrUndefined(record.parentEntityVersionId),
+    parentEntityType: toStringOrUndefined(record.parentEntityType),
+    parentEntityId: toStringOrUndefined(record.parentEntityId),
+    parentEntityName: toStringOrUndefined(record.parentEntityName),
+    rootEntityVersionId: toStringOrUndefined(record.rootEntityVersionId),
+    rootEntityType: toStringOrUndefined(record.rootEntityType),
+    rootEntityId: toStringOrUndefined(record.rootEntityId),
+    rootEntityName: toStringOrUndefined(record.rootEntityName),
+    experimentId: toStringOrUndefined(record.experimentId),
+    userId: toStringOrUndefined(record.userId),
+    organizationId: toStringOrUndefined(record.organizationId),
+    resourceId: toStringOrUndefined(record.resourceId),
+    runId: toStringOrUndefined(record.runId),
+    sessionId: toStringOrUndefined(record.sessionId),
+    threadId: toStringOrUndefined(record.threadId),
+    requestId: toStringOrUndefined(record.requestId),
+    environment: toStringOrUndefined(record.environment),
+    source: toStringOrUndefined(record.source),
+    serviceName: toStringOrUndefined(record.serviceName),
+    metadata: toStringRecordOrUndefined(record.metadata),
+    hasChildError: toBooleanOrUndefined(record.hasChildError),
+    status: record.status as NormalizedTraceStatus,
+  } as NormalizedTraceFilters;
+}
 
 function rowToTraceLiveCursor(row: Record<string, unknown>): LiveCursor | null {
   if (row.ingestedAt == null || row.tieBreaker == null) return null;
@@ -63,8 +116,10 @@ export async function getRootSpan(
  * hasChildError is handled via EXISTS subquery against span_events.
  */
 export async function listTraces(client: ClickHouseClient, args: ListTracesArgs): Promise<ListTracesResponse> {
-  // Parse args through schema to apply defaults
-  const parsed = listTracesArgsSchema.parse(args);
+  const parsed = normalizeObservabilityListArgs<ListTracesArgs['filters'], NormalizedTraceFilters, TracesOrderBy>(args, {
+    orderBy: { field: 'startedAt', direction: 'DESC' } satisfies TracesOrderBy,
+    normalizeFilters: normalizeTraceFilters,
+  });
   const { filters } = parsed;
 
   // Build filter conditions

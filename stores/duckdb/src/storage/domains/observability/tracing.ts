@@ -21,7 +21,18 @@ import type {
 import { BRANCH_SPAN_TYPES, toTraceSpans } from '@mastra/core/storage';
 import type { DuckDBConnection } from '../../db/index';
 import { buildWhereClause, buildOrderByClause, buildPaginationClause } from './filters';
-import { v, jsonV, parseJson, parseJsonArray, toDate, toDateOrNull } from './helpers';
+import {
+  createIngestedAt,
+  createLiveCursor,
+  createSyntheticNowCursor,
+  jsonV,
+  parseJson,
+  parseJsonArray,
+  normalizeObservabilityListArgs,
+  toDate,
+  toDateOrNull,
+  v,
+} from './helpers';
 
 // ============================================================================
 // Columns & Reconstruction
@@ -610,7 +621,9 @@ export async function getTraceLight(db: DuckDBConnection, args: GetTraceArgs): P
  * inside the prefilter CTE so reconstruction runs on at most `perPage` rows.
  */
 export async function listTraces(db: DuckDBConnection, args: ListTracesArgs): Promise<ListTracesResponse> {
-  const parsed = listTracesArgsSchema.parse(args);
+  const parsed = normalizeObservabilityListArgs(args, {
+    orderBy: { field: 'startedAt', direction: 'DESC' } as const,
+  });
   const filters = parsed.filters ?? {};
   const page = Number(parsed.pagination.page);
   const perPage = Number(parsed.pagination.perPage);
@@ -917,7 +930,9 @@ export async function getSpans(db: DuckDBConnection, args: GetSpansArgs): Promis
  * inside the prefilter so reconstruction runs on at most `perPage` rows.
  */
 export async function listBranches(db: DuckDBConnection, args: ListBranchesArgs): Promise<ListBranchesResponse> {
-  const parsed = listBranchesArgsSchema.parse(args);
+  const parsed = normalizeObservabilityListArgs(args, {
+    orderBy: { field: 'startedAt', direction: 'DESC' } as const,
+  });
   const filters = parsed.filters ?? {};
   const page = Number(parsed.pagination.page);
   const perPage = Number(parsed.pagination.perPage);

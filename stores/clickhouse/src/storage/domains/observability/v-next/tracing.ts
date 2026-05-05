@@ -11,7 +11,7 @@
  */
 
 import type { ClickHouseClient } from '@clickhouse/client';
-import { BRANCH_SPAN_TYPES, listBranchesArgsSchema, toTraceSpans, TraceStatus } from '@mastra/core/storage';
+import { BRANCH_SPAN_TYPES, toTraceSpans, TraceStatus } from '@mastra/core/storage';
 import type {
   BatchCreateSpansArgs,
   BatchDeleteTracesArgs,
@@ -36,15 +36,93 @@ import {
   CH_INSERT_SETTINGS,
   createLiveCursor,
   createSyntheticNowCursor,
+  normalizeObservabilityListArgs,
   spanRecordToRow,
   rowToSpanRecord,
+  toDateRangeOrUndefined,
+  toStringOrUndefined,
+  toStringRecordOrUndefined,
+  toUnknownRecordOrUndefined,
 } from './helpers';
 
 const BRANCH_SPAN_TYPE_SQL_LIST = BRANCH_SPAN_TYPES.map(t => `'${t}'`).join(', ');
+type BranchesOrderBy = { field: 'startedAt' | 'endedAt'; direction: 'ASC' | 'DESC' };
+type NormalizedBranchFilters = {
+  spanType?: string;
+  startedAt?: { start?: Date; end?: Date; startExclusive?: boolean; endExclusive?: boolean };
+  endedAt?: { start?: Date; end?: Date; startExclusive?: boolean; endExclusive?: boolean };
+  traceId?: string;
+  entityType?: string;
+  entityId?: string;
+  entityName?: string;
+  entityVersionId?: string;
+  parentEntityVersionId?: string;
+  parentEntityType?: string;
+  parentEntityId?: string;
+  parentEntityName?: string;
+  rootEntityVersionId?: string;
+  rootEntityType?: string;
+  rootEntityId?: string;
+  rootEntityName?: string;
+  experimentId?: string;
+  userId?: string;
+  organizationId?: string;
+  resourceId?: string;
+  runId?: string;
+  sessionId?: string;
+  threadId?: string;
+  requestId?: string;
+  environment?: string;
+  source?: string;
+  serviceName?: string;
+  tags?: string[];
+  metadata?: Record<string, string>;
+  scope?: Record<string, unknown>;
+  status?: TraceStatus;
+};
 
 function rowToBranchLiveCursor(row: Record<string, unknown>): LiveCursor | null {
   if (row.ingestedAt == null || row.dedupeKey == null) return null;
   return createLiveCursor(row.ingestedAt, String(row.dedupeKey));
+}
+
+function normalizeBranchFilters(filters: ListBranchesArgs['filters']): NormalizedBranchFilters | undefined {
+  const record = toUnknownRecordOrUndefined(filters);
+  if (!record) return undefined;
+
+  return {
+    ...record,
+    spanType: toStringOrUndefined(record.spanType),
+    startedAt: toDateRangeOrUndefined(record.startedAt),
+    endedAt: toDateRangeOrUndefined(record.endedAt),
+    traceId: toStringOrUndefined(record.traceId),
+    entityType: toStringOrUndefined(record.entityType),
+    entityId: toStringOrUndefined(record.entityId),
+    entityName: toStringOrUndefined(record.entityName),
+    entityVersionId: toStringOrUndefined(record.entityVersionId),
+    parentEntityVersionId: toStringOrUndefined(record.parentEntityVersionId),
+    parentEntityType: toStringOrUndefined(record.parentEntityType),
+    parentEntityId: toStringOrUndefined(record.parentEntityId),
+    parentEntityName: toStringOrUndefined(record.parentEntityName),
+    rootEntityVersionId: toStringOrUndefined(record.rootEntityVersionId),
+    rootEntityType: toStringOrUndefined(record.rootEntityType),
+    rootEntityId: toStringOrUndefined(record.rootEntityId),
+    rootEntityName: toStringOrUndefined(record.rootEntityName),
+    experimentId: toStringOrUndefined(record.experimentId),
+    userId: toStringOrUndefined(record.userId),
+    organizationId: toStringOrUndefined(record.organizationId),
+    resourceId: toStringOrUndefined(record.resourceId),
+    runId: toStringOrUndefined(record.runId),
+    sessionId: toStringOrUndefined(record.sessionId),
+    threadId: toStringOrUndefined(record.threadId),
+    requestId: toStringOrUndefined(record.requestId),
+    environment: toStringOrUndefined(record.environment),
+    source: toStringOrUndefined(record.source),
+    serviceName: toStringOrUndefined(record.serviceName),
+    metadata: toStringRecordOrUndefined(record.metadata),
+    scope: toUnknownRecordOrUndefined(record.scope),
+    status: record.status as TraceStatus | undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +344,13 @@ export async function dangerouslyClearSpanEvents(client: ClickHouseClient): Prom
  * which is the whole point of this surface.
  */
 export async function listBranches(client: ClickHouseClient, args: ListBranchesArgs): Promise<ListBranchesResponse> {
-  const parsed = listBranchesArgsSchema.parse(args);
+  const parsed = normalizeObservabilityListArgs<ListBranchesArgs['filters'], NormalizedBranchFilters, BranchesOrderBy>(
+    args,
+    {
+      orderBy: { field: 'startedAt', direction: 'DESC' } satisfies BranchesOrderBy,
+      normalizeFilters: normalizeBranchFilters,
+    },
+  );
   const { filters } = parsed;
 
   const conditions: string[] = [];

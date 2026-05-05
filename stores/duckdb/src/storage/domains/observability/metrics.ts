@@ -1,5 +1,4 @@
 import { METRIC_DISTINCT_COLUMNS } from '@mastra/core/storage';
-import { listMetricsArgsSchema } from '@mastra/core/storage';
 import type {
   BatchCreateMetricsArgs,
   ListMetricsArgs,
@@ -26,7 +25,17 @@ import type {
 import { parseFieldKey } from '@mastra/core/utils';
 import type { DuckDBConnection } from '../../db/index';
 import { buildJsonPath, buildOrderByClause, buildPaginationClause, buildWhereClause } from './filters';
-import { createIngestedAt, createLiveCursor, createSyntheticNowCursor, parseJson, parseJsonArray, toDate, v, jsonV } from './helpers';
+import {
+  createIngestedAt,
+  createLiveCursor,
+  createSyntheticNowCursor,
+  normalizeObservabilityListArgs,
+  parseJson,
+  parseJsonArray,
+  toDate,
+  v,
+  jsonV,
+} from './helpers';
 
 // ============================================================================
 // Helpers
@@ -355,7 +364,9 @@ export async function batchCreateMetrics(db: DuckDBConnection, args: BatchCreate
 
 /** Query metric events with filtering, ordering, and pagination. */
 export async function listMetrics(db: DuckDBConnection, args: ListMetricsArgs): Promise<ListMetricsResponse> {
-  const parsed = listMetricsArgsSchema.parse(args);
+  const parsed = normalizeObservabilityListArgs(args, {
+    orderBy: { field: 'timestamp', direction: 'DESC' } as const,
+  });
   const filters = parsed.filters ?? {};
   const filter = buildWhereClause(filters as Record<string, unknown>);
 
