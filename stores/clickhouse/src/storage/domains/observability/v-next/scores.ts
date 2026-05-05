@@ -16,13 +16,21 @@ import type {
   GetScoreTimeSeriesResponse,
   GetScorePercentilesArgs,
   GetScorePercentilesResponse,
+  LiveCursor,
 } from '@mastra/core/storage';
 import { parseFieldKey } from '@mastra/core/utils';
 
 import { TABLE_SCORE_EVENTS } from './ddl';
 import { buildPaginationClause, buildScoresFilterConditions, buildSignalOrderByClause } from './filters';
 import type { FilterResult } from './filters';
-import { CH_INSERT_SETTINGS, CH_SETTINGS, rowToScoreRecord, scoreRecordToRow } from './helpers';
+import {
+  CH_INSERT_SETTINGS,
+  CH_SETTINGS,
+  createLiveCursor,
+  createSyntheticNowCursor,
+  rowToScoreRecord,
+  scoreRecordToRow,
+} from './helpers';
 
 // ============================================================================
 // Helpers
@@ -153,6 +161,32 @@ async function queryJson<T>(client: ClickHouseClient, query: string, params: Rec
   ).json()) as T[];
 }
 
+function rowToScoreLiveCursor(row: Record<string, unknown>): LiveCursor | null {
+  if (row.ingestedAt == null || row.scoreId == null) return null;
+  return createLiveCursor(row.ingestedAt, String(row.scoreId));
+}
+
+async function getScoresSnapshotLiveCursor(
+  client: ClickHouseClient,
+  whereClause: string,
+  params: Record<string, unknown>,
+): Promise<LiveCursor> {
+  const rows = await queryJson<Record<string, unknown>>(
+    client,
+    `
+      SELECT ingestedAt, scoreId
+      FROM ${TABLE_SCORE_EVENTS} AS s
+      ${whereClause ? `${whereClause} AND s.ingestedAt IS NOT NULL` : 'WHERE s.ingestedAt IS NOT NULL'}
+      ORDER BY s.ingestedAt DESC, s.scoreId DESC
+      LIMIT 1
+    `,
+    params,
+  );
+
+  const cursor = rows[0] ? rowToScoreLiveCursor(rows[0]) : null;
+  return cursor ?? createSyntheticNowCursor();
+}
+
 // ============================================================================
 // Write
 // ============================================================================
@@ -179,9 +213,51 @@ export async function batchCreateScores(client: ClickHouseClient, args: BatchCre
 export async function listScores(client: ClickHouseClient, args: ListScoresArgs): Promise<ListScoresResponse> {
   const parsed = listScoresArgsSchema.parse(args);
   const filter = buildScoresFilterConditions(parsed.filters, 's');
+  const whereClause = filter.conditions.length ? `WHERE ${filter.conditions.join(' AND ')}` : '';
+
+  if (parsed.mode === 'delta') {
+    if (!parsed.after) {
+      return {
+        delta: { limit: parsed.limit, hasMore: false },
+        liveCursor: await getScoresSnapshotLiveCursor(client, whereClause, filter.params),
+        scores: [],
+      };
+    }
+
+    const rows = await queryJson<Record<string, any>>(
+      client,
+      `
+        SELECT *
+        FROM ${TABLE_SCORE_EVENTS} AS s
+        ${
+          whereClause
+            ? `${whereClause} AND s.ingestedAt IS NOT NULL AND (s.ingestedAt > {afterIngestedAt:DateTime64(3)} OR (s.ingestedAt = {afterIngestedAt:DateTime64(3)} AND s.scoreId > {afterTieBreaker:String}))`
+            : 'WHERE s.ingestedAt IS NOT NULL AND (s.ingestedAt > {afterIngestedAt:DateTime64(3)} OR (s.ingestedAt = {afterIngestedAt:DateTime64(3)} AND s.scoreId > {afterTieBreaker:String}))'
+        }
+        ORDER BY s.ingestedAt ASC, s.scoreId ASC
+        LIMIT {limit:UInt32}
+      `,
+      {
+        ...filter.params,
+        afterIngestedAt: parsed.after.ingestedAt.getTime(),
+        afterTieBreaker: parsed.after.tieBreaker,
+        limit: parsed.limit + 1,
+      },
+    );
+
+    const pageRows = rows.slice(0, parsed.limit);
+    const liveCursor =
+      (pageRows.length > 0 ? rowToScoreLiveCursor(pageRows[pageRows.length - 1]!) : null) ?? parsed.after;
+
+    return {
+      delta: { limit: parsed.limit, hasMore: rows.length > parsed.limit },
+      liveCursor,
+      scores: pageRows.map(rowToScoreRecord),
+    };
+  }
+
   const pagination = buildPaginationClause(parsed.pagination);
   const orderBy = buildSignalOrderByClause(['timestamp', 'score'], parsed.orderBy, 's');
-  const whereClause = filter.conditions.length ? `WHERE ${filter.conditions.join(' AND ')}` : '';
 
   const countResult = await queryJson<{ total?: number }>(
     client,
@@ -204,6 +280,7 @@ export async function listScores(client: ClickHouseClient, args: ListScoresArgs)
       perPage: pagination.perPage,
       hasMore: (pagination.page + 1) * pagination.perPage < total,
     },
+    liveCursor: await getScoresSnapshotLiveCursor(client, whereClause, filter.params),
     scores: rows.map(rowToScoreRecord),
   };
 }

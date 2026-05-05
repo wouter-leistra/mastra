@@ -7,16 +7,21 @@ import {
   bucketTimestampField,
   comparePeriodSchema,
   commonFilterFields,
+  deltaInfoSchema,
+  deltaLimitSchema,
+  deltaModeSchema,
   experimentIdField,
   contextFields,
   dimensionsField,
   entityTypeField,
   groupBySchema,
+  liveCursorSchema,
   paginationArgsSchema,
   paginationInfoSchema,
   percentileField,
   percentileBucketValueField,
   percentilesSchema,
+  pageModeSchema,
   sortDirectionSchema,
   spanIdField,
   traceIdField,
@@ -195,24 +200,58 @@ export const scoresOrderBySchema = z
   .describe('Order by configuration');
 
 /** Schema for listScores operation arguments */
-export const listScoresArgsSchema = z
+export const listScoresPageArgsSchema = z
   .object({
+    mode: pageModeSchema.optional().describe('Default paged list mode'),
     filters: scoresFilterSchema.optional(),
     pagination: paginationArgsSchema.default({ page: 0, perPage: 10 }).describe('Pagination settings'),
     orderBy: scoresOrderBySchema
       .default({ field: 'timestamp', direction: 'DESC' })
       .describe('Ordering configuration (defaults to timestamp desc)'),
   })
+  .strict()
+  .describe('Arguments for listing scores in page mode');
+
+/** Schema for listScores delta polling arguments. */
+export const listScoresDeltaArgsSchema = z
+  .object({
+    mode: deltaModeSchema,
+    filters: scoresFilterSchema.optional(),
+    after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
+    limit: deltaLimitSchema,
+  })
+  .strict()
+  .describe('Arguments for listing scores in delta mode');
+
+/** Schema for listScores operation arguments */
+export const listScoresArgsSchema = z
+  .union([listScoresPageArgsSchema, listScoresDeltaArgsSchema])
   .describe('Arguments for listing scores');
 
 /** Arguments for listing scores */
 export type ListScoresArgs = z.input<typeof listScoresArgsSchema>;
 
-/** Schema for listScores operation response */
-export const listScoresResponseSchema = z.object({
+/** Schema for paged listScores responses. */
+export const listScoresPageResponseSchema = z.object({
   pagination: paginationInfoSchema,
+  liveCursor: liveCursorSchema
+    .nullable()
+    .optional()
+    .describe('Filtered snapshot watermark for subsequent delta polling'),
   scores: z.array(scoreRecordSchema),
 });
+
+/** Schema for delta listScores responses. */
+export const listScoresDeltaResponseSchema = z.object({
+  delta: deltaInfoSchema,
+  liveCursor: liveCursorSchema.nullable().describe('Resume cursor for the next delta poll'),
+  scores: z.array(scoreRecordSchema),
+});
+
+/** Schema for listScores operation response */
+export const listScoresResponseSchema = z
+  .union([listScoresPageResponseSchema, listScoresDeltaResponseSchema])
+  .describe('Response from listing scores in either page or delta mode');
 
 /** Response containing paginated scores */
 export type ListScoresResponse = z.infer<typeof listScoresResponseSchema>;

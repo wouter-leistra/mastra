@@ -8,13 +8,18 @@ import {
   comparePeriodSchema,
   commonFilterFields,
   contextFields,
+  deltaInfoSchema,
+  deltaLimitSchema,
+  deltaModeSchema,
   dimensionsField,
   groupBySchema,
+  liveCursorSchema,
   paginationArgsSchema,
   paginationInfoSchema,
   percentileField,
   percentileBucketValueField,
   percentilesSchema,
+  pageModeSchema,
   sortDirectionSchema,
   spanIdField,
   traceIdField,
@@ -152,7 +157,10 @@ export const metricsFilterSchema = z
     ...commonFilterFields,
 
     // Metric identification
-    name: z.array(z.string()).nonempty().optional().describe('Filter by metric name(s)'),
+    name: z
+      .preprocess(value => (typeof value === 'string' ? [value] : value), z.array(z.string()).nonempty())
+      .optional()
+      .describe('Filter by metric name(s)'),
 
     /**
      * @deprecated Use `executionSource` instead.
@@ -184,24 +192,58 @@ export const metricsOrderBySchema = z
   .describe('Order by configuration');
 
 /** Schema for listMetrics operation arguments */
-export const listMetricsArgsSchema = z
+export const listMetricsPageArgsSchema = z
   .object({
+    mode: pageModeSchema.optional().describe('Default paged list mode'),
     filters: metricsFilterSchema.optional(),
     pagination: paginationArgsSchema.default({ page: 0, perPage: 10 }).describe('Pagination settings'),
     orderBy: metricsOrderBySchema
       .default({ field: 'timestamp', direction: 'DESC' })
       .describe('Ordering configuration (defaults to timestamp desc)'),
   })
+  .strict()
+  .describe('Arguments for listing metrics in page mode');
+
+/** Schema for listMetrics delta polling arguments. */
+export const listMetricsDeltaArgsSchema = z
+  .object({
+    mode: deltaModeSchema,
+    filters: metricsFilterSchema.optional(),
+    after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
+    limit: deltaLimitSchema,
+  })
+  .strict()
+  .describe('Arguments for listing metrics in delta mode');
+
+/** Schema for listMetrics operation arguments */
+export const listMetricsArgsSchema = z
+  .union([listMetricsPageArgsSchema, listMetricsDeltaArgsSchema])
   .describe('Arguments for listing metrics');
 
 /** Arguments for listing metrics */
 export type ListMetricsArgs = z.input<typeof listMetricsArgsSchema>;
 
-/** Schema for listMetrics operation response */
-export const listMetricsResponseSchema = z.object({
+/** Schema for paged listMetrics responses. */
+export const listMetricsPageResponseSchema = z.object({
   pagination: paginationInfoSchema,
+  liveCursor: liveCursorSchema
+    .nullable()
+    .optional()
+    .describe('Filtered snapshot watermark for subsequent delta polling'),
   metrics: z.array(metricRecordSchema),
 });
+
+/** Schema for delta listMetrics responses. */
+export const listMetricsDeltaResponseSchema = z.object({
+  delta: deltaInfoSchema,
+  liveCursor: liveCursorSchema.nullable().describe('Resume cursor for the next delta poll'),
+  metrics: z.array(metricRecordSchema),
+});
+
+/** Schema for listMetrics operation response */
+export const listMetricsResponseSchema = z
+  .union([listMetricsPageResponseSchema, listMetricsDeltaResponseSchema])
+  .describe('Response from listing metrics in either page or delta mode');
 
 /** Response containing paginated metrics */
 export type ListMetricsResponse = z.infer<typeof listMetricsResponseSchema>;

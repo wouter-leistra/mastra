@@ -68,6 +68,50 @@ export const paginationInfoSchema = z.object({
 });
 
 /**
+ * Cursor used to resume incremental polling for observability list endpoints.
+ * `ingestedAt` is internal ordering metadata and is only exposed inside this cursor.
+ */
+export const liveCursorSchema = z
+  .object({
+    ingestedAt: z.coerce.date().describe('Backend-generated ingestion timestamp for cursor ordering'),
+    tieBreaker: z.string().min(1).describe('Stable row identity used to break same-timestamp ties'),
+  })
+  .describe('Cursor for resuming live observability list updates');
+
+/** Public live cursor type used across observability list endpoints. */
+export type LiveCursor = z.output<typeof liveCursorSchema>;
+/** Input type for live cursor transport/parsing. */
+export type LiveCursorInput = z.input<typeof liveCursorSchema>;
+
+/** Explicit list mode selector for observability list endpoints. */
+export const listModeSchema = z.enum(['page', 'delta']).describe("List mode: 'page' | 'delta'");
+
+/** Explicit delta mode marker. */
+export const deltaModeSchema = z.literal('delta').describe("Incremental polling mode: 'delta'");
+
+/** Explicit page mode marker. */
+export const pageModeSchema = z.literal('page').describe("Page mode: 'page'");
+
+/** Max number of updates returned from a delta poll window. */
+export const deltaLimitSchema = z
+  .coerce
+  .number()
+  .int()
+  .min(1)
+  .max(100)
+  .optional()
+  .default(10)
+  .describe('Maximum number of updates to return in one delta poll');
+
+/** Metadata returned for a delta poll window. */
+export const deltaInfoSchema = z
+  .object({
+    limit: z.number().describe('Maximum number of updates requested for this delta poll'),
+    hasMore: z.boolean().describe('True when more matching updates remain after this response'),
+  })
+  .describe('Incremental polling metadata');
+
+/**
  * Date range for filtering by time
  * Uses z.coerce to handle ISO string → Date conversion from query params
  */

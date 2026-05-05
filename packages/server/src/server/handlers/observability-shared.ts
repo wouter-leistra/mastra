@@ -1,7 +1,10 @@
 import type { Mastra } from '@mastra/core';
 import type { MastraCompositeStore, ObservabilityStorage } from '@mastra/core/storage';
+import { deltaLimitSchema, liveCursorSchema, listModeSchema, paginationArgsSchema } from '@mastra/core/storage';
+import { z } from 'zod/v4';
 import { HTTPException } from '../http-exception';
 import type { ServerRoute } from '../server-adapter/routes';
+import { wrapSchemaForQueryParams } from '../server-adapter/routes/route-builder';
 
 export const NEW_OBSERVABILITY_UPGRADE_MESSAGE =
   'New observability endpoints require a newer @mastra/core. Please upgrade.';
@@ -34,6 +37,13 @@ export interface RouteDetails {
 }
 
 export const NEW_ROUTE_DEFS = {
+  LIST_METRICS: {
+    method: 'GET',
+    path: '/observability/metrics',
+    summary: 'List metrics',
+    description: 'Returns a paginated list of metrics with optional filtering and sorting',
+  },
+
   LIST_LOGS: {
     method: 'GET',
     path: '/observability/logs',
@@ -231,3 +241,78 @@ export const NEW_ROUTE_DEFS = {
 
 export type NewRoutesKey = keyof typeof NEW_ROUTE_DEFS;
 export type NewRoutesDefinitions = (typeof NEW_ROUTE_DEFS)[NewRoutesKey];
+
+export function createObservabilityListQuerySchema<
+  TFilter extends z.ZodObject<z.ZodRawShape>,
+  TOrderBy extends z.ZodObject<z.ZodRawShape>,
+>(filterSchema: TFilter, orderBySchema: TOrderBy) {
+  return wrapSchemaForQueryParams(
+    z
+      .object({
+        ...filterSchema.shape,
+        ...paginationArgsSchema.shape,
+        ...orderBySchema.shape,
+        mode: listModeSchema.optional(),
+        after: liveCursorSchema.optional(),
+        limit: deltaLimitSchema.optional(),
+      })
+      .partial(),
+  ).superRefine((value, ctx) => {
+    const isDelta = value.mode === 'delta';
+    const hasPagination = value.page !== undefined || value.perPage !== undefined;
+    const hasOrderBy = value.field !== undefined || value.direction !== undefined;
+    const hasAfter = value.after !== undefined;
+    const hasLimit = value.limit !== undefined;
+
+    if (isDelta) {
+      if (hasPagination) {
+        if (value.page !== undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['page'],
+            message: '`page` is not allowed when `mode=delta`',
+          });
+        }
+        if (value.perPage !== undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['perPage'],
+            message: '`perPage` is not allowed when `mode=delta`',
+          });
+        }
+      }
+      if (hasOrderBy) {
+        if (value.field !== undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['field'],
+            message: '`field` is not allowed when `mode=delta`',
+          });
+        }
+        if (value.direction !== undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['direction'],
+            message: '`direction` is not allowed when `mode=delta`',
+          });
+        }
+      }
+      return;
+    }
+
+    if (hasAfter) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['after'],
+        message: '`after` is only allowed when `mode=delta`',
+      });
+    }
+    if (hasLimit) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['limit'],
+        message: '`limit` is only allowed when `mode=delta`',
+      });
+    }
+  });
+}

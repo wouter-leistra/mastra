@@ -15,13 +15,21 @@ import type {
   GetFeedbackTimeSeriesResponse,
   GetFeedbackPercentilesArgs,
   GetFeedbackPercentilesResponse,
+  LiveCursor,
 } from '@mastra/core/storage';
 import { parseFieldKey } from '@mastra/core/utils';
 
 import { TABLE_FEEDBACK_EVENTS } from './ddl';
 import { buildFeedbackFilterConditions, buildPaginationClause, buildSignalOrderByClause } from './filters';
 import type { FilterResult } from './filters';
-import { CH_INSERT_SETTINGS, CH_SETTINGS, feedbackRecordToRow, rowToFeedbackRecord } from './helpers';
+import {
+  CH_INSERT_SETTINGS,
+  CH_SETTINGS,
+  createLiveCursor,
+  createSyntheticNowCursor,
+  feedbackRecordToRow,
+  rowToFeedbackRecord,
+} from './helpers';
 
 // ============================================================================
 // Helpers
@@ -157,6 +165,32 @@ async function queryJson<T>(client: ClickHouseClient, query: string, params: Rec
   ).json()) as T[];
 }
 
+function rowToFeedbackLiveCursor(row: Record<string, unknown>): LiveCursor | null {
+  if (row.ingestedAt == null || row.feedbackId == null) return null;
+  return createLiveCursor(row.ingestedAt, String(row.feedbackId));
+}
+
+async function getFeedbackSnapshotLiveCursor(
+  client: ClickHouseClient,
+  whereClause: string,
+  params: Record<string, unknown>,
+): Promise<LiveCursor> {
+  const rows = await queryJson<Record<string, unknown>>(
+    client,
+    `
+      SELECT ingestedAt, feedbackId
+      FROM ${TABLE_FEEDBACK_EVENTS} AS f
+      ${whereClause ? `${whereClause} AND f.ingestedAt IS NOT NULL` : 'WHERE f.ingestedAt IS NOT NULL'}
+      ORDER BY f.ingestedAt DESC, f.feedbackId DESC
+      LIMIT 1
+    `,
+    params,
+  );
+
+  const cursor = rows[0] ? rowToFeedbackLiveCursor(rows[0]) : null;
+  return cursor ?? createSyntheticNowCursor();
+}
+
 // ============================================================================
 // Write
 // ============================================================================
@@ -183,9 +217,51 @@ export async function batchCreateFeedback(client: ClickHouseClient, args: BatchC
 export async function listFeedback(client: ClickHouseClient, args: ListFeedbackArgs): Promise<ListFeedbackResponse> {
   const parsed = listFeedbackArgsSchema.parse(args);
   const filter = buildFeedbackFilterConditions(parsed.filters, 'f');
+  const whereClause = filter.conditions.length ? `WHERE ${filter.conditions.join(' AND ')}` : '';
+
+  if (parsed.mode === 'delta') {
+    if (!parsed.after) {
+      return {
+        delta: { limit: parsed.limit, hasMore: false },
+        liveCursor: await getFeedbackSnapshotLiveCursor(client, whereClause, filter.params),
+        feedback: [],
+      };
+    }
+
+    const rows = await queryJson<Record<string, any>>(
+      client,
+      `
+        SELECT *
+        FROM ${TABLE_FEEDBACK_EVENTS} AS f
+        ${
+          whereClause
+            ? `${whereClause} AND f.ingestedAt IS NOT NULL AND (f.ingestedAt > {afterIngestedAt:DateTime64(3)} OR (f.ingestedAt = {afterIngestedAt:DateTime64(3)} AND f.feedbackId > {afterTieBreaker:String}))`
+            : 'WHERE f.ingestedAt IS NOT NULL AND (f.ingestedAt > {afterIngestedAt:DateTime64(3)} OR (f.ingestedAt = {afterIngestedAt:DateTime64(3)} AND f.feedbackId > {afterTieBreaker:String}))'
+        }
+        ORDER BY f.ingestedAt ASC, f.feedbackId ASC
+        LIMIT {limit:UInt32}
+      `,
+      {
+        ...filter.params,
+        afterIngestedAt: parsed.after.ingestedAt.getTime(),
+        afterTieBreaker: parsed.after.tieBreaker,
+        limit: parsed.limit + 1,
+      },
+    );
+
+    const pageRows = rows.slice(0, parsed.limit);
+    const liveCursor =
+      (pageRows.length > 0 ? rowToFeedbackLiveCursor(pageRows[pageRows.length - 1]!) : null) ?? parsed.after;
+
+    return {
+      delta: { limit: parsed.limit, hasMore: rows.length > parsed.limit },
+      liveCursor,
+      feedback: pageRows.map(rowToFeedbackRecord),
+    };
+  }
+
   const pagination = buildPaginationClause(parsed.pagination);
   const orderBy = buildSignalOrderByClause(['timestamp'], parsed.orderBy, 'f');
-  const whereClause = filter.conditions.length ? `WHERE ${filter.conditions.join(' AND ')}` : '';
 
   const countResult = await queryJson<{ total?: number }>(
     client,
@@ -208,6 +284,7 @@ export async function listFeedback(client: ClickHouseClient, args: ListFeedbackA
       perPage: pagination.perPage,
       hasMore: (pagination.page + 1) * pagination.perPage < total,
     },
+    liveCursor: await getFeedbackSnapshotLiveCursor(client, whereClause, filter.params),
     feedback: rows.map(rowToFeedbackRecord),
   };
 }

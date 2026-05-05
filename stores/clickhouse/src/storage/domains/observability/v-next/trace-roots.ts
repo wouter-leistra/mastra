@@ -7,11 +7,16 @@
 
 import type { ClickHouseClient } from '@clickhouse/client';
 import { listTracesArgsSchema, toTraceSpans } from '@mastra/core/storage';
-import type { GetRootSpanArgs, GetRootSpanResponse, ListTracesArgs, ListTracesResponse } from '@mastra/core/storage';
+import type { GetRootSpanArgs, GetRootSpanResponse, ListTracesArgs, ListTracesResponse, LiveCursor } from '@mastra/core/storage';
 
 import { TABLE_SPAN_EVENTS, TABLE_TRACE_ROOTS } from './ddl';
 import { buildTraceFilterConditions, buildTraceOrderByClause } from './filters';
-import { CH_SETTINGS, rowToSpanRecord } from './helpers';
+import { CH_SETTINGS, createLiveCursor, createSyntheticNowCursor, rowToSpanRecord } from './helpers';
+
+function rowToTraceLiveCursor(row: Record<string, unknown>): LiveCursor | null {
+  if (row.ingestedAt == null || row.tieBreaker == null) return null;
+  return createLiveCursor(row.ingestedAt, String(row.tieBreaker));
+}
 
 // ---------------------------------------------------------------------------
 // getRootSpan
@@ -59,9 +64,8 @@ export async function getRootSpan(
  */
 export async function listTraces(client: ClickHouseClient, args: ListTracesArgs): Promise<ListTracesResponse> {
   // Parse args through schema to apply defaults
-  const { filters, pagination, orderBy } = listTracesArgsSchema.parse(args);
-  const page = pagination?.page ?? 0;
-  const perPage = pagination?.perPage ?? 10;
+  const parsed = listTracesArgsSchema.parse(args);
+  const { filters } = parsed;
 
   // Build filter conditions
   const { conditions, params } = buildTraceFilterConditions(filters, 'r');
@@ -86,6 +90,86 @@ export async function listTraces(client: ClickHouseClient, args: ListTracesArgs)
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const dedupedRootsSql = `
+    SELECT *
+    FROM ${TABLE_TRACE_ROOTS} r
+    ${whereClause}
+    ORDER BY dedupeKey
+    LIMIT 1 BY dedupeKey
+  `;
+  const traceActivitySql = `
+    SELECT
+      traceId,
+      max(ingestedAt) AS latestIngestedAt,
+      argMax(dedupeKey, tuple(ingestedAt, dedupeKey)) AS latestTieBreaker
+    FROM ${TABLE_SPAN_EVENTS}
+    WHERE ingestedAt IS NOT NULL
+    GROUP BY traceId
+  `;
+
+  if (parsed.mode === 'delta') {
+    const liveCursorResult = await client.query({
+      query: `
+        SELECT activity.latestIngestedAt AS ingestedAt, activity.latestTieBreaker AS tieBreaker
+        FROM (${dedupedRootsSql}) AS roots
+        INNER JOIN (${traceActivitySql}) AS activity USING (traceId)
+        ORDER BY activity.latestIngestedAt DESC, activity.latestTieBreaker DESC
+        LIMIT 1
+      `,
+      query_params: params,
+      format: 'JSONEachRow',
+      clickhouse_settings: CH_SETTINGS,
+    });
+    const liveCursorRows = (await liveCursorResult.json()) as Record<string, unknown>[];
+    const snapshotCursor = (liveCursorRows[0] ? rowToTraceLiveCursor(liveCursorRows[0]) : null) ?? createSyntheticNowCursor();
+
+    if (!parsed.after) {
+      return {
+        delta: { limit: parsed.limit, hasMore: false },
+        liveCursor: snapshotCursor,
+        spans: [],
+      };
+    }
+
+    const deltaResult = await client.query({
+      query: `
+        SELECT roots.*, activity.latestIngestedAt AS ingestedAt, activity.latestTieBreaker AS tieBreaker
+        FROM (${dedupedRootsSql}) AS roots
+        INNER JOIN (${traceActivitySql}) AS activity USING (traceId)
+        WHERE activity.latestIngestedAt > {afterIngestedAt:DateTime64(3)}
+          OR (
+            activity.latestIngestedAt = {afterIngestedAt:DateTime64(3)}
+            AND activity.latestTieBreaker > {afterTieBreaker:String}
+          )
+        ORDER BY activity.latestIngestedAt ASC, activity.latestTieBreaker ASC
+        LIMIT {limit:UInt32}
+      `,
+      query_params: {
+        ...params,
+        afterIngestedAt: parsed.after.ingestedAt.getTime(),
+        afterTieBreaker: parsed.after.tieBreaker,
+        limit: parsed.limit + 1,
+      },
+      format: 'JSONEachRow',
+      clickhouse_settings: CH_SETTINGS,
+    });
+
+    const deltaRows = (await deltaResult.json()) as Record<string, any>[];
+    const pageRows = deltaRows.slice(0, parsed.limit);
+    const liveCursor =
+      (pageRows.length > 0 ? rowToTraceLiveCursor(pageRows[pageRows.length - 1]!) : null) ?? parsed.after;
+
+    return {
+      delta: { limit: parsed.limit, hasMore: deltaRows.length > parsed.limit },
+      liveCursor,
+      spans: toTraceSpans(pageRows.map(rowToSpanRecord)),
+    };
+  }
+
+  const pagination = parsed.pagination;
+  const orderBy = parsed.orderBy;
+  const page = pagination?.page ?? 0;
+  const perPage = pagination?.perPage ?? 10;
   // Outer ORDER BY must not use table alias — the outer SELECT wraps an anonymous subquery
   const orderClause = buildTraceOrderByClause(orderBy);
 
@@ -94,10 +178,7 @@ export async function listTraces(client: ClickHouseClient, args: ListTracesArgs)
     query: `
       SELECT count() as cnt FROM (
         SELECT dedupeKey
-        FROM ${TABLE_TRACE_ROOTS} r
-        ${whereClause}
-        ORDER BY dedupeKey
-        LIMIT 1 BY dedupeKey
+        FROM (${dedupedRootsSql})
       )
     `,
     query_params: params,
@@ -111,6 +192,7 @@ export async function listTraces(client: ClickHouseClient, args: ListTracesArgs)
   if (total === 0) {
     return {
       pagination: { total: 0, page, perPage, hasMore: false },
+      liveCursor: createSyntheticNowCursor(),
       spans: [],
     };
   }
@@ -119,11 +201,7 @@ export async function listTraces(client: ClickHouseClient, args: ListTracesArgs)
   const dataResult = await client.query({
     query: `
       SELECT * FROM (
-        SELECT *
-        FROM ${TABLE_TRACE_ROOTS} r
-        ${whereClause}
-        ORDER BY dedupeKey
-        LIMIT 1 BY dedupeKey
+        ${dedupedRootsSql}
       )
       ORDER BY ${orderClause}
       LIMIT {limit:UInt32}
@@ -141,6 +219,20 @@ export async function listTraces(client: ClickHouseClient, args: ListTracesArgs)
   const rows = (await dataResult.json()) as Record<string, any>[];
   const spans = rows.map(rowToSpanRecord);
 
+  const liveCursorResult = await client.query({
+    query: `
+      SELECT activity.latestIngestedAt AS ingestedAt, activity.latestTieBreaker AS tieBreaker
+      FROM (${dedupedRootsSql}) AS roots
+      INNER JOIN (${traceActivitySql}) AS activity USING (traceId)
+      ORDER BY activity.latestIngestedAt DESC, activity.latestTieBreaker DESC
+      LIMIT 1
+    `,
+    query_params: params,
+    format: 'JSONEachRow',
+    clickhouse_settings: CH_SETTINGS,
+  });
+  const liveCursorRows = (await liveCursorResult.json()) as Record<string, unknown>[];
+
   return {
     pagination: {
       total,
@@ -148,6 +240,7 @@ export async function listTraces(client: ClickHouseClient, args: ListTracesArgs)
       perPage,
       hasMore: (page + 1) * perPage < total,
     },
+    liveCursor: (liveCursorRows[0] ? rowToTraceLiveCursor(liveCursorRows[0]) : null) ?? createSyntheticNowCursor(),
     spans: toTraceSpans(spans),
   };
 }

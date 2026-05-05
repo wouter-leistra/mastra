@@ -17,6 +17,7 @@ import type {
   CreateScoreRecord,
   FeedbackRecord,
   CreateFeedbackRecord,
+  LiveCursor,
 } from '@mastra/core/storage';
 import { EntityType } from '@mastra/core/storage';
 
@@ -141,6 +142,44 @@ export function toISOString(value: Date | number | string): string {
   return value;
 }
 
+export function createIngestedAt(): Date {
+  return new Date();
+}
+
+export function createSyntheticNowCursor(base = createIngestedAt()): LiveCursor {
+  return {
+    ingestedAt: base,
+    tieBreaker: '!',
+  };
+}
+
+export function createLiveCursor(ingestedAt: unknown, tieBreaker: string): LiveCursor {
+  return {
+    ingestedAt: toDate(ingestedAt),
+    tieBreaker,
+  };
+}
+
+export function compareLiveCursors(a: LiveCursor, b: LiveCursor): number {
+  const timeDiff = a.ingestedAt.getTime() - b.ingestedAt.getTime();
+  if (timeDiff !== 0) return timeDiff;
+  return a.tieBreaker.localeCompare(b.tieBreaker);
+}
+
+export function isLiveCursorAfter(candidate: LiveCursor, after: LiveCursor): boolean {
+  return compareLiveCursors(candidate, after) > 0;
+}
+
+export function maxLiveCursor(cursors: Iterable<LiveCursor>): LiveCursor | null {
+  let maxCursor: LiveCursor | null = null;
+  for (const cursor of cursors) {
+    if (maxCursor === null || compareLiveCursors(cursor, maxCursor) > 0) {
+      maxCursor = cursor;
+    }
+  }
+  return maxCursor;
+}
+
 export function buildDedupeKey(traceId: string, spanId: string): string {
   return `${traceId}:${spanId}`;
 }
@@ -203,6 +242,7 @@ export function rowsToSpanRecords(rows: Record<string, any>[]): SpanRecord[] {
 export function spanRecordToRow(span: CreateSpanRecord): Record<string, unknown> {
   const endedAt = span.isEvent ? span.startedAt : (span.endedAt ?? span.startedAt);
   const metadata = span.metadata ?? null;
+  const ingestedAt = createIngestedAt();
 
   return {
     dedupeKey: buildDedupeKey(span.traceId, span.spanId),
@@ -247,6 +287,7 @@ export function spanRecordToRow(span: CreateSpanRecord): Record<string, unknown>
     output: jsonEncode(span.output),
     error: jsonEncode(span.error),
     requestContext: jsonEncode(span.requestContext),
+    ingestedAt: toISOString(ingestedAt),
   };
 }
 
@@ -289,6 +330,7 @@ export function rowToLogRecord(row: Record<string, any>): LogRecord {
 }
 
 export function logRecordToRow(log: CreateLogRecord): Record<string, unknown> {
+  const ingestedAt = createIngestedAt();
   return {
     logId: log.logId,
     timestamp: toISOString(log.timestamp),
@@ -323,6 +365,7 @@ export function logRecordToRow(log: CreateLogRecord): Record<string, unknown> {
     tags: normalizeTags(log.tags),
     metadata: jsonEncode(log.metadata),
     scope: jsonEncode(log.scope),
+    ingestedAt: toISOString(ingestedAt),
   };
 }
 
@@ -370,6 +413,7 @@ export function rowToMetricRecord(row: Record<string, any>): MetricRecord {
 }
 
 export function metricRecordToRow(metric: CreateMetricRecord): Record<string, unknown> {
+  const ingestedAt = createIngestedAt();
   return {
     metricId: metric.metricId,
     timestamp: toISOString(metric.timestamp),
@@ -409,6 +453,7 @@ export function metricRecordToRow(metric: CreateMetricRecord): Record<string, un
     costMetadata: jsonEncode(metric.costMetadata),
     metadata: jsonEncode(metric.metadata),
     scope: jsonEncode(metric.scope),
+    ingestedAt: toISOString(ingestedAt),
   };
 }
 
@@ -457,6 +502,7 @@ export function rowToScoreRecord(row: Record<string, any>): ScoreRecord {
 export function scoreRecordToRow(score: CreateScoreRecord): Record<string, unknown> {
   const metadata = score.metadata ?? null;
   const scoreSource = score.scoreSource ?? score.source ?? null;
+  const ingestedAt = createIngestedAt();
 
   return {
     scoreId: score.scoreId,
@@ -495,6 +541,7 @@ export function scoreRecordToRow(score: CreateScoreRecord): Record<string, unkno
     tags: normalizeTags(score.tags),
     metadata: jsonEncode(metadata),
     scope: jsonEncode(score.scope),
+    ingestedAt: toISOString(ingestedAt),
   };
 }
 
@@ -547,6 +594,7 @@ export function feedbackRecordToRow(feedback: CreateFeedbackRecord): Record<stri
   const metadata = feedback.metadata ?? null;
   const feedbackSource = feedback.feedbackSource ?? feedback.source ?? '';
   const feedbackUserId = feedback.feedbackUserId ?? feedback.userId ?? null;
+  const ingestedAt = createIngestedAt();
 
   return {
     feedbackId: feedback.feedbackId,
@@ -586,5 +634,6 @@ export function feedbackRecordToRow(feedback: CreateFeedbackRecord): Record<stri
     tags: normalizeTags(feedback.tags),
     metadata: jsonEncode(metadata),
     scope: jsonEncode(feedback.scope),
+    ingestedAt: toISOString(ingestedAt),
   };
 }

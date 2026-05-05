@@ -126,7 +126,8 @@ CREATE TABLE IF NOT EXISTS ${TABLE_SPAN_EVENTS} (
   output             Nullable(String),
   error              Nullable(String),
   metadataRaw        Nullable(String),
-  requestContext     Nullable(String)
+  requestContext     Nullable(String),
+  ingestedAt         Nullable(DateTime64(3, 'UTC'))
 )
 ENGINE = ReplacingMergeTree
 PARTITION BY toDate(endedAt)
@@ -197,7 +198,8 @@ CREATE TABLE IF NOT EXISTS ${TABLE_TRACE_ROOTS} (
   output             Nullable(String),
   error              Nullable(String),
   metadataRaw        Nullable(String),
-  requestContext     Nullable(String)
+  requestContext     Nullable(String),
+  ingestedAt         Nullable(DateTime64(3, 'UTC'))
 )
 ENGINE = ReplacingMergeTree
 PARTITION BY toDate(endedAt)
@@ -289,7 +291,8 @@ CREATE TABLE IF NOT EXISTS ${TABLE_TRACE_BRANCHES} (
   output             Nullable(String),
   error              Nullable(String),
   metadataRaw        Nullable(String),
-  requestContext     Nullable(String)
+  requestContext     Nullable(String),
+  ingestedAt         Nullable(DateTime64(3, 'UTC'))
 )
 ENGINE = ReplacingMergeTree
 PARTITION BY toDate(endedAt)
@@ -366,6 +369,7 @@ CREATE TABLE IF NOT EXISTS ${TABLE_METRIC_EVENTS} (
   costMetadata       Nullable(String),
   metadata           Nullable(String),
   scope              Nullable(String),
+  ingestedAt         Nullable(DateTime64(3, 'UTC')),
 
   -- Bloom-filter skip indexes for high-cardinality ID drilldowns.
   -- Equality and IN filters on these columns can skip granule chunks that
@@ -438,7 +442,8 @@ CREATE TABLE IF NOT EXISTS ${TABLE_LOG_EVENTS} (
   -- Information-only JSON payloads
   data               Nullable(String),
   metadata           Nullable(String),
-  scope              Nullable(String)
+  scope              Nullable(String),
+  ingestedAt         Nullable(DateTime64(3, 'UTC'))
 )
 ENGINE = ReplacingMergeTree
 PARTITION BY toDate(timestamp)
@@ -503,7 +508,8 @@ CREATE TABLE IF NOT EXISTS ${TABLE_SCORE_EVENTS} (
 
   -- Information-only JSON payloads
   metadata           Nullable(String),
-  scope              Nullable(String)
+  scope              Nullable(String),
+  ingestedAt         Nullable(DateTime64(3, 'UTC'))
 )
 ENGINE = ReplacingMergeTree
 PARTITION BY toDate(timestamp)
@@ -572,7 +578,8 @@ CREATE TABLE IF NOT EXISTS ${TABLE_FEEDBACK_EVENTS} (
 
   -- Information-only JSON payloads
   metadata           Nullable(String),
-  scope              Nullable(String)
+  scope              Nullable(String),
+  ingestedAt         Nullable(DateTime64(3, 'UTC'))
 )
 ENGINE = ReplacingMergeTree
 PARTITION BY toDate(timestamp)
@@ -714,26 +721,37 @@ export const ALL_MIGRATIONS = [
   `ALTER TABLE ${TABLE_SPAN_EVENTS} ADD COLUMN IF NOT EXISTS entityVersionId Nullable(String)`,
   `ALTER TABLE ${TABLE_SPAN_EVENTS} ADD COLUMN IF NOT EXISTS parentEntityVersionId Nullable(String)`,
   `ALTER TABLE ${TABLE_SPAN_EVENTS} ADD COLUMN IF NOT EXISTS rootEntityVersionId Nullable(String)`,
+  `ALTER TABLE ${TABLE_SPAN_EVENTS} ADD COLUMN IF NOT EXISTS ingestedAt Nullable(DateTime64(3, 'UTC'))`,
   // Trace roots
   `ALTER TABLE ${TABLE_TRACE_ROOTS} ADD COLUMN IF NOT EXISTS entityVersionId Nullable(String)`,
   `ALTER TABLE ${TABLE_TRACE_ROOTS} ADD COLUMN IF NOT EXISTS parentEntityVersionId Nullable(String)`,
   `ALTER TABLE ${TABLE_TRACE_ROOTS} ADD COLUMN IF NOT EXISTS rootEntityVersionId Nullable(String)`,
+  `ALTER TABLE ${TABLE_TRACE_ROOTS} ADD COLUMN IF NOT EXISTS ingestedAt Nullable(DateTime64(3, 'UTC'))`,
+  // Trace branches
+  `ALTER TABLE ${TABLE_TRACE_BRANCHES} ADD COLUMN IF NOT EXISTS entityVersionId Nullable(String)`,
+  `ALTER TABLE ${TABLE_TRACE_BRANCHES} ADD COLUMN IF NOT EXISTS parentEntityVersionId Nullable(String)`,
+  `ALTER TABLE ${TABLE_TRACE_BRANCHES} ADD COLUMN IF NOT EXISTS rootEntityVersionId Nullable(String)`,
+  `ALTER TABLE ${TABLE_TRACE_BRANCHES} ADD COLUMN IF NOT EXISTS ingestedAt Nullable(DateTime64(3, 'UTC'))`,
   // Metrics
   `ALTER TABLE ${TABLE_METRIC_EVENTS} ADD COLUMN IF NOT EXISTS entityVersionId Nullable(String)`,
   `ALTER TABLE ${TABLE_METRIC_EVENTS} ADD COLUMN IF NOT EXISTS parentEntityVersionId Nullable(String)`,
   `ALTER TABLE ${TABLE_METRIC_EVENTS} ADD COLUMN IF NOT EXISTS rootEntityVersionId Nullable(String)`,
+  `ALTER TABLE ${TABLE_METRIC_EVENTS} ADD COLUMN IF NOT EXISTS ingestedAt Nullable(DateTime64(3, 'UTC'))`,
   // Logs
   `ALTER TABLE ${TABLE_LOG_EVENTS} ADD COLUMN IF NOT EXISTS entityVersionId Nullable(String)`,
   `ALTER TABLE ${TABLE_LOG_EVENTS} ADD COLUMN IF NOT EXISTS parentEntityVersionId Nullable(String)`,
   `ALTER TABLE ${TABLE_LOG_EVENTS} ADD COLUMN IF NOT EXISTS rootEntityVersionId Nullable(String)`,
+  `ALTER TABLE ${TABLE_LOG_EVENTS} ADD COLUMN IF NOT EXISTS ingestedAt Nullable(DateTime64(3, 'UTC'))`,
   // Scores
   `ALTER TABLE ${TABLE_SCORE_EVENTS} ADD COLUMN IF NOT EXISTS entityVersionId Nullable(String)`,
   `ALTER TABLE ${TABLE_SCORE_EVENTS} ADD COLUMN IF NOT EXISTS parentEntityVersionId Nullable(String)`,
   `ALTER TABLE ${TABLE_SCORE_EVENTS} ADD COLUMN IF NOT EXISTS rootEntityVersionId Nullable(String)`,
+  `ALTER TABLE ${TABLE_SCORE_EVENTS} ADD COLUMN IF NOT EXISTS ingestedAt Nullable(DateTime64(3, 'UTC'))`,
   // Feedback
   `ALTER TABLE ${TABLE_FEEDBACK_EVENTS} ADD COLUMN IF NOT EXISTS entityVersionId Nullable(String)`,
   `ALTER TABLE ${TABLE_FEEDBACK_EVENTS} ADD COLUMN IF NOT EXISTS parentEntityVersionId Nullable(String)`,
   `ALTER TABLE ${TABLE_FEEDBACK_EVENTS} ADD COLUMN IF NOT EXISTS rootEntityVersionId Nullable(String)`,
+  `ALTER TABLE ${TABLE_FEEDBACK_EVENTS} ADD COLUMN IF NOT EXISTS ingestedAt Nullable(DateTime64(3, 'UTC'))`,
   // Metric skip indexes — additive, instant DDL. Existing parts keep no index
   // until merged or `MATERIALIZE INDEX` is run; new parts are bloom-filtered
   // immediately. With normal retention turning over the table, the index

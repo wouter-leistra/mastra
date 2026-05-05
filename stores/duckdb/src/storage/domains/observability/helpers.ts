@@ -1,4 +1,5 @@
 import { DuckDBConnection } from '../../db/index';
+import type { LiveCursor } from '@mastra/core/storage';
 
 /** Shorthand for {@link DuckDBConnection.sqlValue}. */
 export const v = DuckDBConnection.sqlValue;
@@ -45,4 +46,42 @@ export function parseJsonArray(value: unknown): unknown[] | null {
   if (value === null || value === undefined) return null;
   const parsed = parseJson(value);
   return Array.isArray(parsed) ? parsed : null;
+}
+
+export function createIngestedAt(): Date {
+  return new Date();
+}
+
+export function createSyntheticNowCursor(base = createIngestedAt()): LiveCursor {
+  return {
+    ingestedAt: base,
+    tieBreaker: '!',
+  };
+}
+
+export function createLiveCursor(ingestedAt: unknown, tieBreaker: string): LiveCursor {
+  return {
+    ingestedAt: toDate(ingestedAt),
+    tieBreaker,
+  };
+}
+
+export function compareLiveCursors(a: LiveCursor, b: LiveCursor): number {
+  const timeDiff = a.ingestedAt.getTime() - b.ingestedAt.getTime();
+  if (timeDiff !== 0) return timeDiff;
+  return a.tieBreaker.localeCompare(b.tieBreaker);
+}
+
+export function isLiveCursorAfter(candidate: LiveCursor, after: LiveCursor): boolean {
+  return compareLiveCursors(candidate, after) > 0;
+}
+
+export function maxLiveCursor(cursors: Iterable<LiveCursor>): LiveCursor | null {
+  let maxCursor: LiveCursor | null = null;
+  for (const cursor of cursors) {
+    if (maxCursor === null || compareLiveCursors(cursor, maxCursor) > 0) {
+      maxCursor = cursor;
+    }
+  }
+  return maxCursor;
 }

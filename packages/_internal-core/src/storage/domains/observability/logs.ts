@@ -2,9 +2,14 @@ import { z } from 'zod/v4';
 import {
   commonFilterFields,
   contextFields,
+  deltaInfoSchema,
+  deltaLimitSchema,
+  deltaModeSchema,
+  liveCursorSchema,
   metadataField,
   paginationArgsSchema,
   paginationInfoSchema,
+  pageModeSchema,
   sortDirectionSchema,
   spanIdField,
   tagsField,
@@ -135,24 +140,58 @@ export const logsOrderBySchema = z
   .describe('Order by configuration');
 
 /** Schema for listLogs operation arguments */
-export const listLogsArgsSchema = z
+export const listLogsPageArgsSchema = z
   .object({
+    mode: pageModeSchema.optional().describe('Default paged list mode'),
     filters: logsFilterSchema.optional().describe('Optional filters to apply'),
     pagination: paginationArgsSchema.default({ page: 0, perPage: 10 }).describe('Pagination settings'),
     orderBy: logsOrderBySchema
       .default({ field: 'timestamp', direction: 'DESC' })
       .describe('Ordering configuration (defaults to timestamp desc)'),
   })
+  .strict()
+  .describe('Arguments for listing logs in page mode');
+
+/** Schema for listLogs delta polling arguments. */
+export const listLogsDeltaArgsSchema = z
+  .object({
+    mode: deltaModeSchema,
+    filters: logsFilterSchema.optional().describe('Optional filters to apply'),
+    after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
+    limit: deltaLimitSchema,
+  })
+  .strict()
+  .describe('Arguments for listing logs in delta mode');
+
+/** Schema for listLogs operation arguments */
+export const listLogsArgsSchema = z
+  .union([listLogsPageArgsSchema, listLogsDeltaArgsSchema])
   .describe('Arguments for listing logs');
 
 /** Arguments for listing logs */
 export type ListLogsArgs = z.input<typeof listLogsArgsSchema>;
 
-/** Schema for listLogs operation response */
-export const listLogsResponseSchema = z.object({
+/** Schema for paged listLogs responses. */
+export const listLogsPageResponseSchema = z.object({
   pagination: paginationInfoSchema,
+  liveCursor: liveCursorSchema
+    .nullable()
+    .optional()
+    .describe('Filtered snapshot watermark for subsequent delta polling'),
   logs: z.array(logRecordSchema),
 });
+
+/** Schema for delta listLogs responses. */
+export const listLogsDeltaResponseSchema = z.object({
+  delta: deltaInfoSchema,
+  liveCursor: liveCursorSchema.nullable().describe('Resume cursor for the next delta poll'),
+  logs: z.array(logRecordSchema),
+});
+
+/** Schema for listLogs operation response */
+export const listLogsResponseSchema = z
+  .union([listLogsPageResponseSchema, listLogsDeltaResponseSchema])
+  .describe('Response from listing logs in either page or delta mode');
 
 /** Response containing paginated logs */
 export type ListLogsResponse = z.infer<typeof listLogsResponseSchema>;

@@ -21,13 +21,21 @@ import type {
   GetMetricLabelValuesArgs,
   GetMetricLabelValuesResponse,
   MetricDistinctColumn,
+  LiveCursor,
 } from '@mastra/core/storage';
 import { parseFieldKey } from '@mastra/core/utils';
 
 import { TABLE_METRIC_EVENTS, TABLE_DISCOVERY_VALUES, TABLE_DISCOVERY_PAIRS } from './ddl';
 import { buildMetricsFilterConditions, buildPaginationClause, buildSignalOrderByClause } from './filters';
 import type { FilterResult } from './filters';
-import { CH_INSERT_SETTINGS, CH_SETTINGS, metricRecordToRow, rowToMetricRecord } from './helpers';
+import {
+  CH_INSERT_SETTINGS,
+  CH_SETTINGS,
+  createLiveCursor,
+  createSyntheticNowCursor,
+  metricRecordToRow,
+  rowToMetricRecord,
+} from './helpers';
 
 // ============================================================================
 // Helpers
@@ -238,6 +246,32 @@ async function queryJson<T>(client: ClickHouseClient, query: string, params: Rec
   ).json()) as T[];
 }
 
+function rowToMetricLiveCursor(row: Record<string, unknown>): LiveCursor | null {
+  if (row.ingestedAt == null || row.metricId == null) return null;
+  return createLiveCursor(row.ingestedAt, String(row.metricId));
+}
+
+async function getMetricsSnapshotLiveCursor(
+  client: ClickHouseClient,
+  whereClause: string,
+  params: Record<string, unknown>,
+): Promise<LiveCursor> {
+  const rows = await queryJson<Record<string, unknown>>(
+    client,
+    `
+      SELECT ingestedAt, metricId
+      FROM ${TABLE_METRIC_EVENTS} AS m
+      ${whereClause ? `${whereClause} AND m.ingestedAt IS NOT NULL` : 'WHERE m.ingestedAt IS NOT NULL'}
+      ORDER BY m.ingestedAt DESC, m.metricId DESC
+      LIMIT 1
+    `,
+    params,
+  );
+
+  const cursor = rows[0] ? rowToMetricLiveCursor(rows[0]) : null;
+  return cursor ?? createSyntheticNowCursor();
+}
+
 // ============================================================================
 // Write
 // ============================================================================
@@ -260,9 +294,51 @@ export async function batchCreateMetrics(client: ClickHouseClient, args: BatchCr
 export async function listMetrics(client: ClickHouseClient, args: ListMetricsArgs): Promise<ListMetricsResponse> {
   const parsed = listMetricsArgsSchema.parse(args);
   const filter = buildMetricsFilterConditions(parsed.filters, 'm');
+  const whereClause = filter.conditions.length ? `WHERE ${filter.conditions.join(' AND ')}` : '';
+
+  if (parsed.mode === 'delta') {
+    if (!parsed.after) {
+      return {
+        delta: { limit: parsed.limit, hasMore: false },
+        liveCursor: await getMetricsSnapshotLiveCursor(client, whereClause, filter.params),
+        metrics: [],
+      };
+    }
+
+    const rows = await queryJson<Record<string, any>>(
+      client,
+      `
+        SELECT *
+        FROM ${TABLE_METRIC_EVENTS} AS m
+        ${
+          whereClause
+            ? `${whereClause} AND m.ingestedAt IS NOT NULL AND (m.ingestedAt > {afterIngestedAt:DateTime64(3)} OR (m.ingestedAt = {afterIngestedAt:DateTime64(3)} AND m.metricId > {afterTieBreaker:String}))`
+            : 'WHERE m.ingestedAt IS NOT NULL AND (m.ingestedAt > {afterIngestedAt:DateTime64(3)} OR (m.ingestedAt = {afterIngestedAt:DateTime64(3)} AND m.metricId > {afterTieBreaker:String}))'
+        }
+        ORDER BY m.ingestedAt ASC, m.metricId ASC
+        LIMIT {limit:UInt32}
+      `,
+      {
+        ...filter.params,
+        afterIngestedAt: parsed.after.ingestedAt.getTime(),
+        afterTieBreaker: parsed.after.tieBreaker,
+        limit: parsed.limit + 1,
+      },
+    );
+
+    const pageRows = rows.slice(0, parsed.limit);
+    const liveCursor =
+      (pageRows.length > 0 ? rowToMetricLiveCursor(pageRows[pageRows.length - 1]!) : null) ?? parsed.after;
+
+    return {
+      delta: { limit: parsed.limit, hasMore: rows.length > parsed.limit },
+      liveCursor,
+      metrics: pageRows.map(rowToMetricRecord),
+    };
+  }
+
   const pagination = buildPaginationClause(parsed.pagination);
   const orderBy = buildSignalOrderByClause(['timestamp'], parsed.orderBy, 'm');
-  const whereClause = filter.conditions.length ? `WHERE ${filter.conditions.join(' AND ')}` : '';
 
   const countResult = await queryJson<{ total?: number }>(
     client,
@@ -285,6 +361,7 @@ export async function listMetrics(client: ClickHouseClient, args: ListMetricsArg
       perPage: pagination.perPage,
       hasMore: (pagination.page + 1) * pagination.perPage < total,
     },
+    liveCursor: await getMetricsSnapshotLiveCursor(client, whereClause, filter.params),
     metrics: rows.map(rowToMetricRecord),
   };
 }

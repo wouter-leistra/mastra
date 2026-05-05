@@ -7,15 +7,20 @@ import {
   bucketTimestampField,
   comparePeriodSchema,
   commonFilterFields,
+  deltaInfoSchema,
+  deltaLimitSchema,
+  deltaModeSchema,
   experimentIdField,
   contextFields,
   dimensionsField,
   groupBySchema,
+  liveCursorSchema,
   paginationArgsSchema,
   paginationInfoSchema,
   percentileField,
   percentileBucketValueField,
   percentilesSchema,
+  pageModeSchema,
   sortDirectionSchema,
   spanIdField,
   traceIdField,
@@ -220,8 +225,9 @@ export const feedbackOrderBySchema = z
   .describe('Order by configuration');
 
 /** Schema for listFeedback operation arguments */
-export const listFeedbackArgsSchema = z
+export const listFeedbackPageArgsSchema = z
   .object({
+    mode: pageModeSchema.optional().describe('Default paged list mode'),
     filters: z
       .preprocess(normalizeLegacyFeedbackActor, feedbackFilterObjectSchema)
       .optional()
@@ -231,16 +237,52 @@ export const listFeedbackArgsSchema = z
       .default({ field: 'timestamp', direction: 'DESC' })
       .describe('Ordering configuration (defaults to timestamp desc)'),
   })
+  .strict()
+  .describe('Arguments for listing feedback in page mode');
+
+/** Schema for listFeedback delta polling arguments. */
+export const listFeedbackDeltaArgsSchema = z
+  .object({
+    mode: deltaModeSchema,
+    filters: z
+      .preprocess(normalizeLegacyFeedbackActor, feedbackFilterObjectSchema)
+      .optional()
+      .describe('Optional filters to apply'),
+    after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
+    limit: deltaLimitSchema,
+  })
+  .strict()
+  .describe('Arguments for listing feedback in delta mode');
+
+/** Schema for listFeedback operation arguments */
+export const listFeedbackArgsSchema = z
+  .union([listFeedbackPageArgsSchema, listFeedbackDeltaArgsSchema])
   .describe('Arguments for listing feedback');
 
 /** Arguments for listing feedback */
 export type ListFeedbackArgs = z.input<typeof listFeedbackArgsSchema>;
 
-/** Schema for listFeedback operation response */
-export const listFeedbackResponseSchema = z.object({
+/** Schema for paged listFeedback responses. */
+export const listFeedbackPageResponseSchema = z.object({
   pagination: paginationInfoSchema,
+  liveCursor: liveCursorSchema
+    .nullable()
+    .optional()
+    .describe('Filtered snapshot watermark for subsequent delta polling'),
   feedback: z.array(feedbackRecordSchema),
 });
+
+/** Schema for delta listFeedback responses. */
+export const listFeedbackDeltaResponseSchema = z.object({
+  delta: deltaInfoSchema,
+  liveCursor: liveCursorSchema.nullable().describe('Resume cursor for the next delta poll'),
+  feedback: z.array(feedbackRecordSchema),
+});
+
+/** Schema for listFeedback operation response */
+export const listFeedbackResponseSchema = z
+  .union([listFeedbackPageResponseSchema, listFeedbackDeltaResponseSchema])
+  .describe('Response from listing feedback in either page or delta mode');
 
 /** Response containing paginated feedback */
 export type ListFeedbackResponse = z.infer<typeof listFeedbackResponseSchema>;

@@ -26,13 +26,26 @@ import type {
   LightSpanRecord,
   ListBranchesArgs,
   ListBranchesResponse,
+  LiveCursor,
   SpanRecord,
 } from '@mastra/core/storage';
 
 import { TABLE_SPAN_EVENTS, TABLE_TRACE_BRANCHES, TABLE_TRACE_ROOTS } from './ddl';
-import { CH_SETTINGS, CH_INSERT_SETTINGS, spanRecordToRow, rowToSpanRecord } from './helpers';
+import {
+  CH_SETTINGS,
+  CH_INSERT_SETTINGS,
+  createLiveCursor,
+  createSyntheticNowCursor,
+  spanRecordToRow,
+  rowToSpanRecord,
+} from './helpers';
 
 const BRANCH_SPAN_TYPE_SQL_LIST = BRANCH_SPAN_TYPES.map(t => `'${t}'`).join(', ');
+
+function rowToBranchLiveCursor(row: Record<string, unknown>): LiveCursor | null {
+  if (row.ingestedAt == null || row.dedupeKey == null) return null;
+  return createLiveCursor(row.ingestedAt, String(row.dedupeKey));
+}
 
 // ---------------------------------------------------------------------------
 // Write operations
@@ -253,9 +266,8 @@ export async function dangerouslyClearSpanEvents(client: ClickHouseClient): Prom
  * which is the whole point of this surface.
  */
 export async function listBranches(client: ClickHouseClient, args: ListBranchesArgs): Promise<ListBranchesResponse> {
-  const { filters, pagination, orderBy } = listBranchesArgsSchema.parse(args);
-  const page = pagination?.page ?? 0;
-  const perPage = pagination?.perPage ?? 10;
+  const parsed = listBranchesArgsSchema.parse(args);
+  const { filters } = parsed;
 
   const conditions: string[] = [];
   const params: Record<string, unknown> = {};
@@ -378,6 +390,74 @@ export async function listBranches(client: ClickHouseClient, args: ListBranchesA
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const dedupedBranchesSql = `
+    SELECT *
+    FROM ${TABLE_TRACE_BRANCHES}
+    ${whereClause}
+    ORDER BY dedupeKey
+    LIMIT 1 BY dedupeKey
+  `;
+
+  if (parsed.mode === 'delta') {
+    const liveCursorResult = await client.query({
+      query: `
+        SELECT ingestedAt, dedupeKey
+        FROM (${dedupedBranchesSql})
+        WHERE ingestedAt IS NOT NULL
+        ORDER BY ingestedAt DESC, dedupeKey DESC
+        LIMIT 1
+      `,
+      query_params: params,
+      format: 'JSONEachRow',
+      clickhouse_settings: CH_SETTINGS,
+    });
+    const liveCursorRows = (await liveCursorResult.json()) as Record<string, unknown>[];
+    const snapshotCursor =
+      (liveCursorRows[0] ? rowToBranchLiveCursor(liveCursorRows[0]) : null) ?? createSyntheticNowCursor();
+
+    if (!parsed.after) {
+      return {
+        delta: { limit: parsed.limit, hasMore: false },
+        liveCursor: snapshotCursor,
+        branches: [],
+      };
+    }
+
+    const deltaResult = await client.query({
+      query: `
+        SELECT *
+        FROM (${dedupedBranchesSql})
+        WHERE ingestedAt IS NOT NULL
+          AND (ingestedAt > {afterIngestedAt:DateTime64(3)}
+            OR (ingestedAt = {afterIngestedAt:DateTime64(3)} AND dedupeKey > {afterTieBreaker:String}))
+        ORDER BY ingestedAt ASC, dedupeKey ASC
+        LIMIT {limit:UInt32}
+      `,
+      query_params: {
+        ...params,
+        afterIngestedAt: parsed.after.ingestedAt.getTime(),
+        afterTieBreaker: parsed.after.tieBreaker,
+        limit: parsed.limit + 1,
+      },
+      format: 'JSONEachRow',
+      clickhouse_settings: CH_SETTINGS,
+    });
+    const deltaRows = (await deltaResult.json()) as Record<string, any>[];
+    const pageRows = deltaRows.slice(0, parsed.limit);
+    const liveCursor =
+      (pageRows.length > 0 ? rowToBranchLiveCursor(pageRows[pageRows.length - 1]!) : null) ?? parsed.after;
+
+    return {
+      delta: { limit: parsed.limit, hasMore: deltaRows.length > parsed.limit },
+      liveCursor,
+      branches: toTraceSpans(pageRows.map(rowToSpanRecord)),
+    };
+  }
+
+  const pagination = parsed.pagination;
+  const orderBy = parsed.orderBy;
+  const page = pagination?.page ?? 0;
+  const perPage = pagination?.perPage ?? 10;
   const sortField = orderBy?.field === 'endedAt' ? 'endedAt' : 'startedAt';
   const sortDirection = orderBy?.direction === 'ASC' ? 'ASC' : 'DESC';
 
@@ -386,10 +466,7 @@ export async function listBranches(client: ClickHouseClient, args: ListBranchesA
     query: `
       SELECT count() as cnt FROM (
         SELECT dedupeKey
-        FROM ${TABLE_TRACE_BRANCHES}
-        ${whereClause}
-        ORDER BY dedupeKey
-        LIMIT 1 BY dedupeKey
+        FROM (${dedupedBranchesSql})
       )
     `,
     query_params: params,
@@ -402,6 +479,7 @@ export async function listBranches(client: ClickHouseClient, args: ListBranchesA
   if (total === 0) {
     return {
       pagination: { total: 0, page, perPage, hasMore: false },
+      liveCursor: createSyntheticNowCursor(),
       branches: [],
     };
   }
@@ -409,11 +487,7 @@ export async function listBranches(client: ClickHouseClient, args: ListBranchesA
   const dataResult = await client.query({
     query: `
       SELECT * FROM (
-        SELECT *
-        FROM ${TABLE_TRACE_BRANCHES}
-        ${whereClause}
-        ORDER BY dedupeKey
-        LIMIT 1 BY dedupeKey
+        ${dedupedBranchesSql}
       )
       ORDER BY ${sortField} ${sortDirection}, dedupeKey ASC
       LIMIT {limit:UInt32}
@@ -430,6 +504,20 @@ export async function listBranches(client: ClickHouseClient, args: ListBranchesA
   const rows = (await dataResult.json()) as Record<string, any>[];
   const spans = rows.map(rowToSpanRecord);
 
+  const liveCursorResult = await client.query({
+    query: `
+      SELECT ingestedAt, dedupeKey
+      FROM (${dedupedBranchesSql})
+      WHERE ingestedAt IS NOT NULL
+      ORDER BY ingestedAt DESC, dedupeKey DESC
+      LIMIT 1
+    `,
+    query_params: params,
+    format: 'JSONEachRow',
+    clickhouse_settings: CH_SETTINGS,
+  });
+  const liveCursorRows = (await liveCursorResult.json()) as Record<string, unknown>[];
+
   return {
     pagination: {
       total,
@@ -437,6 +525,7 @@ export async function listBranches(client: ClickHouseClient, args: ListBranchesA
       perPage,
       hasMore: (page + 1) * perPage < total,
     },
+    liveCursor: (liveCursorRows[0] ? rowToBranchLiveCursor(liveCursorRows[0]) : null) ?? createSyntheticNowCursor(),
     branches: toTraceSpans(spans),
   };
 }
