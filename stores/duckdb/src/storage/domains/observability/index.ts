@@ -131,6 +131,19 @@ export class ObservabilityStorageDuckDB extends ObservabilityStorage {
     this.db = config.db;
   }
 
+  override getListCapabilities() {
+    return {
+      delta: {
+        traces: true,
+        branches: true,
+        logs: true,
+        metrics: true,
+        scores: true,
+        feedback: true,
+      },
+    } as const;
+  }
+
   /** Create all observability tables if they don't exist. */
   async init(): Promise<void> {
     const migrationStatus = await checkSignalTablesMigrationStatus(this.db);

@@ -1,5 +1,5 @@
 import type { Mastra } from '@mastra/core';
-import type { MastraCompositeStore, ObservabilityStorage } from '@mastra/core/storage';
+import type { MastraCompositeStore, ObservabilityListEndpoint, ObservabilityStorage } from '@mastra/core/storage';
 import { deltaLimitSchema, liveCursorSchema, listModeSchema, paginationArgsSchema } from '@mastra/core/storage';
 import { z } from 'zod/v4';
 import { HTTPException } from '../http-exception';
@@ -26,6 +26,19 @@ export async function getObservabilityStore(mastra: Mastra): Promise<Observabili
     throw new HTTPException(500, { message: 'Observability storage domain is not available' });
   }
   return observability;
+}
+
+export function assertObservabilityDeltaSupported(
+  observabilityStore: ObservabilityStorage,
+  endpoint: ObservabilityListEndpoint,
+) {
+  if (observabilityStore.getListCapabilities?.()?.delta?.[endpoint] === true) {
+    return;
+  }
+
+  throw new HTTPException(501, {
+    message: `Delta polling is not supported by the configured observability store for ${endpoint}`,
+  });
 }
 
 export interface RouteDetails {

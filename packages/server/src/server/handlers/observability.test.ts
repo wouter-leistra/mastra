@@ -21,7 +21,7 @@ import {
   SCORE_TRACES_ROUTE,
   LIST_SCORES_BY_SPAN_ROUTE,
 } from './observability';
-import { NEW_ROUTES } from './observability-new-endpoints';
+import { LIST_METRICS, NEW_ROUTES } from './observability-new-endpoints';
 import { createTestServerContext } from './test-utils';
 
 // Mock scoreTraces
@@ -38,12 +38,14 @@ vi.mock('./error', () => ({
 
 // Mock observability store
 const createMockObservabilityStore = () => ({
+  getListCapabilities: vi.fn(),
   getTrace: vi.fn(),
   getTraceLight: vi.fn(),
   getSpan: vi.fn(),
   getBranch: vi.fn(),
   listTraces: vi.fn(),
   listBranches: vi.fn(),
+  listMetrics: vi.fn(),
   listLogs: vi.fn(),
   listScores: vi.fn(),
   createScore: vi.fn(),
@@ -227,6 +229,58 @@ describe('Observability Handlers', () => {
       ).rejects.toThrow();
 
       expect(handleErrorSpy).toHaveBeenCalledWith(storageError, 'Error getting trace');
+    });
+  });
+
+  describe('Delta capability gating', () => {
+    it('should reject metrics delta mode when the store does not advertise delta support', async () => {
+      await expect(
+        LIST_METRICS.handler({
+          ...createTestServerContext({ mastra: mockMastra }),
+          mode: 'delta',
+        }),
+      ).rejects.toThrow(HTTPException);
+
+      try {
+        await LIST_METRICS.handler({
+          ...createTestServerContext({ mastra: mockMastra }),
+          mode: 'delta',
+        });
+      } catch (error) {
+        expect(error).toBeInstanceOf(HTTPException);
+        expect((error as HTTPException).status).toBe(501);
+        expect((error as HTTPException).message).toBe(
+          'Delta polling is not supported by the configured observability store for metrics',
+        );
+      }
+
+      expect(mockObservabilityStore.listMetrics).not.toHaveBeenCalled();
+    });
+
+    it('should allow metrics delta mode when the store advertises support', async () => {
+      const deltaResponse = {
+        metrics: [],
+        delta: { limit: 10, hasMore: false },
+        liveCursor: null,
+      };
+
+      (mockObservabilityStore.getListCapabilities as ReturnType<typeof vi.fn>).mockReturnValue({
+        delta: { metrics: true },
+      });
+      (mockObservabilityStore.listMetrics as ReturnType<typeof vi.fn>).mockResolvedValue(deltaResponse);
+
+      const result = await LIST_METRICS.handler({
+        ...createTestServerContext({ mastra: mockMastra }),
+        mode: 'delta',
+      });
+
+      expect(result).toEqual(deltaResponse);
+      expect(mockObservabilityStore.listMetrics).toHaveBeenCalledWith({
+        mode: 'delta',
+        filters: {},
+        after: undefined,
+        limit: undefined,
+      });
     });
   });
 

@@ -69,7 +69,12 @@ import { HTTPException } from '../http-exception';
 import type { InferParams, ServerContext, ServerRouteHandler } from '../server-adapter/routes';
 import { createRoute, pickParams, wrapSchemaForQueryParams } from '../server-adapter/routes/route-builder';
 import { handleError } from './error';
-import { createObservabilityListQuerySchema, getObservabilityStore, NEW_ROUTE_DEFS } from './observability-shared';
+import {
+  assertObservabilityDeltaSupported,
+  createObservabilityListQuerySchema,
+  getObservabilityStore,
+  NEW_ROUTE_DEFS,
+} from './observability-shared';
 import type { RouteDetails } from './observability-shared';
 
 function createNewRoute<
@@ -126,6 +131,7 @@ export const LIST_METRICS = createNewRoute(NEW_ROUTE_DEFS.LIST_METRICS, {
     const observabilityStore = await getObservabilityStore(mastra);
 
     if (mode === 'delta') {
+      assertObservabilityDeltaSupported(observabilityStore, 'metrics');
       return await observabilityStore.listMetrics({
         mode,
         filters,
@@ -136,7 +142,9 @@ export const LIST_METRICS = createNewRoute(NEW_ROUTE_DEFS.LIST_METRICS, {
 
     const pagination = pickParams(paginationArgsSchema, params);
     const orderBy = pickParams(metricsOrderBySchema, params);
-    return await observabilityStore.listMetrics(mode === 'page' ? { mode, filters, pagination, orderBy } : { filters, pagination, orderBy });
+    return await observabilityStore.listMetrics(
+      mode === 'page' ? { mode, filters, pagination, orderBy } : { filters, pagination, orderBy },
+    );
   },
 });
 
@@ -152,6 +160,7 @@ export const LIST_LOGS = createNewRoute(NEW_ROUTE_DEFS.LIST_LOGS, {
     const observabilityStore = await getObservabilityStore(mastra);
 
     if (mode === 'delta') {
+      assertObservabilityDeltaSupported(observabilityStore, 'logs');
       return await observabilityStore.listLogs({
         mode,
         filters,
@@ -162,7 +171,9 @@ export const LIST_LOGS = createNewRoute(NEW_ROUTE_DEFS.LIST_LOGS, {
 
     const pagination = pickParams(paginationArgsSchema, params);
     const orderBy = pickParams(logsOrderBySchema, params);
-    return await observabilityStore.listLogs(mode === 'page' ? { mode, filters, pagination, orderBy } : { filters, pagination, orderBy });
+    return await observabilityStore.listLogs(
+      mode === 'page' ? { mode, filters, pagination, orderBy } : { filters, pagination, orderBy },
+    );
   },
 });
 
@@ -178,6 +189,7 @@ export const LIST_SCORES = createNewRoute(NEW_ROUTE_DEFS.LIST_SCORES, {
     const observabilityStore = await getObservabilityStore(mastra);
 
     if (mode === 'delta') {
+      assertObservabilityDeltaSupported(observabilityStore, 'scores');
       return await observabilityStore.listScores({
         mode,
         filters,
@@ -188,7 +200,9 @@ export const LIST_SCORES = createNewRoute(NEW_ROUTE_DEFS.LIST_SCORES, {
 
     const pagination = pickParams(paginationArgsSchema, params);
     const orderBy = pickParams(scoresOrderBySchema, params);
-    return await observabilityStore.listScores(mode === 'page' ? { mode, filters, pagination, orderBy } : { filters, pagination, orderBy });
+    return await observabilityStore.listScores(
+      mode === 'page' ? { mode, filters, pagination, orderBy } : { filters, pagination, orderBy },
+    );
   },
 });
 
@@ -266,6 +280,7 @@ export const LIST_FEEDBACK = createNewRoute(NEW_ROUTE_DEFS.LIST_FEEDBACK, {
     const observabilityStore = await getObservabilityStore(mastra);
 
     if (mode === 'delta') {
+      assertObservabilityDeltaSupported(observabilityStore, 'feedback');
       return await observabilityStore.listFeedback({
         mode,
         filters,
@@ -276,7 +291,9 @@ export const LIST_FEEDBACK = createNewRoute(NEW_ROUTE_DEFS.LIST_FEEDBACK, {
 
     const pagination = pickParams(paginationArgsSchema, params);
     const orderBy = pickParams(feedbackOrderBySchema, params);
-    return await observabilityStore.listFeedback(mode === 'page' ? { mode, filters, pagination, orderBy } : { filters, pagination, orderBy });
+    return await observabilityStore.listFeedback(
+      mode === 'page' ? { mode, filters, pagination, orderBy } : { filters, pagination, orderBy },
+    );
   },
 });
 

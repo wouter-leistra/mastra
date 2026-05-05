@@ -134,6 +134,19 @@ export class ObservabilityInMemory extends ObservabilityStorage {
     this.db = db;
   }
 
+  override getListCapabilities() {
+    return {
+      delta: {
+        traces: true,
+        branches: true,
+        logs: true,
+        metrics: true,
+        scores: true,
+        feedback: true,
+      },
+    } as const;
+  }
+
   async dangerouslyClearAll(): Promise<void> {
     this.db.traces.clear();
     this.db.metricRecords.length = 0;
