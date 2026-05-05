@@ -1,13 +1,28 @@
 import type { Mastra } from '@mastra/core';
-import type { MastraCompositeStore, ObservabilityListEndpoint, ObservabilityStorage } from '@mastra/core/storage';
+import { coreFeatures } from '@mastra/core/features';
+import type { MastraCompositeStore, ObservabilityStorage } from '@mastra/core/storage';
 import { deltaLimitSchema, liveCursorSchema, listModeSchema, paginationArgsSchema } from '@mastra/core/storage';
 import { z } from 'zod/v4';
 import { HTTPException } from '../http-exception';
 import type { ServerRoute } from '../server-adapter/routes';
 import { wrapSchemaForQueryParams } from '../server-adapter/routes/route-builder';
 
+export const OBSERVABILITY_CORE_FEATURE = 'observability:v1.32.0';
 export const NEW_OBSERVABILITY_UPGRADE_MESSAGE =
-  'New observability endpoints require a newer @mastra/core. Please upgrade.';
+  'New observability endpoints require @mastra/core >= 1.32.0, please upgrade.';
+
+export type ObservabilityListEndpoint = 'traces' | 'branches' | 'logs' | 'metrics' | 'scores' | 'feedback';
+
+type ObservabilityListCapabilities = {
+  delta?: Partial<Record<ObservabilityListEndpoint, true>>;
+};
+
+function getListCapabilities(observabilityStore: ObservabilityStorage): ObservabilityListCapabilities | undefined {
+  const candidate = observabilityStore as ObservabilityStorage & {
+    getListCapabilities?: () => ObservabilityListCapabilities | undefined;
+  };
+  return candidate.getListCapabilities?.();
+}
 
 /** Retrieves MastraCompositeStore or throws 500 if unavailable. */
 export function getStorage(mastra: Mastra): MastraCompositeStore {
@@ -32,7 +47,13 @@ export function assertObservabilityDeltaSupported(
   observabilityStore: ObservabilityStorage,
   endpoint: ObservabilityListEndpoint,
 ) {
-  if (observabilityStore.getListCapabilities?.()?.delta?.[endpoint] === true) {
+  if (!coreFeatures.has(OBSERVABILITY_CORE_FEATURE)) {
+    throw new HTTPException(501, {
+      message: `Delta polling requires @mastra/core >= 1.32.0 for ${endpoint}, please upgrade.`,
+    });
+  }
+
+  if (getListCapabilities(observabilityStore)?.delta?.[endpoint] === true) {
     return;
   }
 
