@@ -22,7 +22,6 @@ import { BRANCH_SPAN_TYPES, toTraceSpans } from '@mastra/core/storage';
 import type { DuckDBConnection } from '../../db/index';
 import { buildWhereClause, buildOrderByClause, buildPaginationClause } from './filters';
 import {
-  createIngestedAt,
   createLiveCursor,
   createSyntheticNowCursor,
   jsonV,
@@ -194,6 +193,10 @@ function rowToSpanRecord(row: Record<string, unknown>): SpanRecord {
     createdAt: toDate(row.startedAt),
     updatedAt: null,
   };
+}
+
+function rowToLiveCursor(row: Record<string, unknown>) {
+  return createLiveCursor(row.ingestedAt, String(row.tieBreaker));
 }
 
 function buildHasChildErrorClause(hasChildError: boolean | undefined, rootAlias: string): string {
@@ -740,7 +743,6 @@ export async function listTraces(db: DuckDBConnection, args: ListTracesArgs): Pr
     );
 
     const orderByClause = buildOrderByClause(orderBy);
-    const { clause: paginationClause, params: paginationParams } = buildPaginationClause({ page, perPage });
     const countSql = `
       SELECT COUNT(*) as total
       FROM span_events AS ${outerAlias}
