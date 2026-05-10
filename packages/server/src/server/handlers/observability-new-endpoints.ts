@@ -62,10 +62,8 @@ import {
   liveCursorSchema,
   paginationArgsSchema,
 } from '@internal/core/storage';
-import { coreFeatures } from '@mastra/core/features';
 import { generateSignalId } from '@mastra/core/observability';
 import { z } from 'zod/v4';
-import { HTTPException } from '../http-exception';
 import type { InferParams, ServerContext, ServerRouteHandler } from '../server-adapter/routes';
 import { createRoute, pickParams, wrapSchemaForQueryParams } from '../server-adapter/routes/route-builder';
 import { handleError } from './error';
@@ -74,8 +72,6 @@ import {
   createObservabilityListQuerySchema,
   getObservabilityStore,
   NEW_ROUTE_DEFS,
-  NEW_OBSERVABILITY_UPGRADE_MESSAGE,
-  OBSERVABILITY_CORE_FEATURE,
 } from './observability-shared';
 import type { RouteDetails } from './observability-shared';
 
@@ -102,12 +98,6 @@ function createNewRoute<
     tags: ['Observability'],
     requiresAuth: true,
     handler: (async (params: InferParams<TPathSchema, TQuerySchema, TBodySchema> & ServerContext) => {
-      if (!coreFeatures.has(OBSERVABILITY_CORE_FEATURE)) {
-        throw new HTTPException(501, {
-          message: NEW_OBSERVABILITY_UPGRADE_MESSAGE,
-        });
-      }
-
       try {
         return await handler(params);
       } catch (error) {

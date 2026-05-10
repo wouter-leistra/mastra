@@ -1,15 +1,15 @@
+import { deltaLimitSchema, liveCursorSchema, listModeSchema, paginationArgsSchema } from '@internal/core/storage';
 import type { Mastra } from '@mastra/core';
 import { coreFeatures } from '@mastra/core/features';
 import type { MastraCompositeStore, ObservabilityStorage } from '@mastra/core/storage';
-import { deltaLimitSchema, liveCursorSchema, listModeSchema, paginationArgsSchema } from '@internal/core/storage';
 import { z } from 'zod/v4';
 import { HTTPException } from '../http-exception';
 import type { ServerRoute } from '../server-adapter/routes';
 import { wrapSchemaForQueryParams } from '../server-adapter/routes/route-builder';
 
-export const OBSERVABILITY_CORE_FEATURE = 'observability:v1.32.0';
-export const NEW_OBSERVABILITY_UPGRADE_MESSAGE =
-  'New observability endpoints require @mastra/core >= 1.32.0, please upgrade.';
+export const OBSERVABILITY_DELTA_POLLING_FEATURE = 'observability-delta-polling';
+export const OBSERVABILITY_DELTA_POLLING_UPGRADE_MESSAGE =
+  'Delta polling requires a newer @mastra/core with observability delta polling support. Please upgrade.';
 
 export type ObservabilityListEndpoint = 'traces' | 'branches' | 'logs' | 'metrics' | 'scores' | 'feedback';
 
@@ -47,9 +47,9 @@ export function assertObservabilityDeltaSupported(
   observabilityStore: ObservabilityStorage,
   endpoint: ObservabilityListEndpoint,
 ) {
-  if (!coreFeatures.has(OBSERVABILITY_CORE_FEATURE)) {
+  if (!coreFeatures.has(OBSERVABILITY_DELTA_POLLING_FEATURE)) {
     throw new HTTPException(501, {
-      message: `Delta polling requires @mastra/core >= 1.32.0 for ${endpoint}, please upgrade.`,
+      message: `${OBSERVABILITY_DELTA_POLLING_UPGRADE_MESSAGE} (endpoint: ${endpoint})`,
     });
   }
 
