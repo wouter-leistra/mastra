@@ -46,7 +46,9 @@ function normalizeScoresFilters(filters: ListScoresArgs['filters']): NormalizedS
   return {
     ...record,
     timestamp: toDateRangeOrUndefined(record.timestamp),
-    scorerId: Array.isArray(record.scorerId) ? toStringArrayOrUndefined(record.scorerId) : toStringOrUndefined(record.scorerId),
+    scorerId: Array.isArray(record.scorerId)
+      ? toStringArrayOrUndefined(record.scorerId)
+      : toStringOrUndefined(record.scorerId),
     scoreSource: toStringOrUndefined(record.scoreSource),
     source: toStringOrUndefined(record.source),
     executionSource: toStringOrUndefined(record.executionSource),

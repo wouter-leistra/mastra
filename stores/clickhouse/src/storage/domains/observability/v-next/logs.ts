@@ -73,7 +73,11 @@ export async function batchCreateLogs(client: ClickHouseClient, args: BatchCreat
 }
 
 export async function listLogs(client: ClickHouseClient, args: ListLogsArgs): Promise<ListLogsResponse> {
-  const parsed = normalizeObservabilityListArgs<ListLogsArgs['filters'], NormalizedLogsFilters, { field: 'timestamp'; direction: 'ASC' | 'DESC' }>(args, {
+  const parsed = normalizeObservabilityListArgs<
+    ListLogsArgs['filters'],
+    NormalizedLogsFilters,
+    { field: 'timestamp'; direction: 'ASC' | 'DESC' }
+  >(args, {
     orderBy: { field: 'timestamp', direction: 'DESC' } as const,
     normalizeFilters: normalizeLogsFilters,
   });
@@ -114,7 +118,8 @@ export async function listLogs(client: ClickHouseClient, args: ListLogsArgs): Pr
     ).json()) as Record<string, any>[];
 
     const pageRows = rows.slice(0, parsed.limit);
-    const liveCursor = (pageRows.length > 0 ? rowToLogLiveCursor(pageRows[pageRows.length - 1]!) : null) ?? parsed.after;
+    const liveCursor =
+      (pageRows.length > 0 ? rowToLogLiveCursor(pageRows[pageRows.length - 1]!) : null) ?? parsed.after;
 
     return {
       delta: { limit: parsed.limit, hasMore: rows.length > parsed.limit },

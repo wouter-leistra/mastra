@@ -429,7 +429,10 @@ export async function listScores(db: DuckDBConnection, args: ListScoresArgs): Pr
   const orderByClause = buildOrderByClause(parsed.orderBy);
   const { clause: paginationClause, params: paginationParams } = buildPaginationClause({ page, perPage });
 
-  const countResult = await db.query<{ total: number }>(`SELECT COUNT(*) as total FROM score_events ${filter.clause}`, filter.params);
+  const countResult = await db.query<{ total: number }>(
+    `SELECT COUNT(*) as total FROM score_events ${filter.clause}`,
+    filter.params,
+  );
   const total = Number(countResult[0]?.total ?? 0);
 
   const rows = await db.query<Record<string, unknown>>(

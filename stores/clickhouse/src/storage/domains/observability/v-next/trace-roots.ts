@@ -7,7 +7,13 @@
 
 import type { ClickHouseClient } from '@clickhouse/client';
 import { toTraceSpans } from '@mastra/core/storage';
-import type { GetRootSpanArgs, GetRootSpanResponse, ListTracesArgs, ListTracesResponse, LiveCursor } from '@mastra/core/storage';
+import type {
+  GetRootSpanArgs,
+  GetRootSpanResponse,
+  ListTracesArgs,
+  ListTracesResponse,
+  LiveCursor,
+} from '@mastra/core/storage';
 
 import { TABLE_SPAN_EVENTS, TABLE_TRACE_ROOTS } from './ddl';
 import { buildTraceFilterConditions, buildTraceOrderByClause } from './filters';
@@ -116,10 +122,13 @@ export async function getRootSpan(
  * hasChildError is handled via EXISTS subquery against span_events.
  */
 export async function listTraces(client: ClickHouseClient, args: ListTracesArgs): Promise<ListTracesResponse> {
-  const parsed = normalizeObservabilityListArgs<ListTracesArgs['filters'], NormalizedTraceFilters, TracesOrderBy>(args, {
-    orderBy: { field: 'startedAt', direction: 'DESC' } satisfies TracesOrderBy,
-    normalizeFilters: normalizeTraceFilters,
-  });
+  const parsed = normalizeObservabilityListArgs<ListTracesArgs['filters'], NormalizedTraceFilters, TracesOrderBy>(
+    args,
+    {
+      orderBy: { field: 'startedAt', direction: 'DESC' } satisfies TracesOrderBy,
+      normalizeFilters: normalizeTraceFilters,
+    },
+  );
   const { filters } = parsed;
 
   // Build filter conditions
@@ -176,7 +185,8 @@ export async function listTraces(client: ClickHouseClient, args: ListTracesArgs)
       clickhouse_settings: CH_SETTINGS,
     });
     const liveCursorRows = (await liveCursorResult.json()) as Record<string, unknown>[];
-    const snapshotCursor = (liveCursorRows[0] ? rowToTraceLiveCursor(liveCursorRows[0]) : null) ?? createSyntheticNowCursor();
+    const snapshotCursor =
+      (liveCursorRows[0] ? rowToTraceLiveCursor(liveCursorRows[0]) : null) ?? createSyntheticNowCursor();
 
     if (!parsed.after) {
       return {
