@@ -40,6 +40,7 @@ function normalizeTraceFilters(filters: ListTracesArgs['filters']): NormalizedTr
 
   return {
     ...record,
+    traceId: toStringOrUndefined(record.traceId),
     startedAt: toDateRangeOrUndefined(record.startedAt),
     endedAt: toDateRangeOrUndefined(record.endedAt),
     spanType: toStringOrUndefined(record.spanType),

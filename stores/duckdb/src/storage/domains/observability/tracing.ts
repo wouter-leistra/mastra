@@ -654,43 +654,6 @@ export async function listTraces(db: DuckDBConnection, args: ListTracesArgs): Pr
   const canOrderInPrefilter = SAFE_PREFILTER_ORDER_FIELDS.has(orderBy.field);
   const hasPostAggFilters = Object.keys(postAgg).length > 0 || hasChildError !== undefined || !canOrderInPrefilter;
 
-  if (!hasPostAggFilters) {
-    // Fast path: order + paginate in the prefilter, reconstruct only the page.
-    // Only `startedAt` reaches here (per SAFE_PREFILTER_ORDER_FIELDS), and on
-    // start rows it lives in the `timestamp` column.
-    const prefilterOrderBy = `ORDER BY timestamp ${orderDir}`;
-    const offset = page * perPage;
-
-    const countSql = `
-      SELECT COUNT(*) as total
-      FROM span_events AS ${outerAlias}
-      ${prefilterWhere}
-    `;
-    const countResult = await db.query<{ total: number }>(countSql, prefilterParams);
-    const total = Number(countResult[0]?.total ?? 0);
-
-    const pageSql = `
-      WITH page_roots AS (
-        SELECT traceId, spanId
-        FROM span_events AS ${outerAlias}
-        ${prefilterWhere}
-        ${prefilterOrderBy}
-        LIMIT ? OFFSET ?
-      )
-      ${SPAN_RECONSTRUCT_SELECT}
-      WHERE (traceId, spanId) IN (SELECT traceId, spanId FROM page_roots)
-      GROUP BY traceId, spanId
-      ${buildOrderByClause(orderBy)}
-    `;
-    const rows = await db.query(pageSql, [...prefilterParams, perPage, offset]);
-    const spans = rows.map(row => rowToSpanRecord(row as Record<string, unknown>));
-
-    return {
-      pagination: { total, page, perPage, hasMore: (page + 1) * perPage < total },
-      spans: toTraceSpans(spans),
-    };
-  }
-
   // Slow path: reconstruct the prefilter set, then apply post-agg filters.
   const { clause: postAggClause, params: postAggParams } = buildWhereClause(postAgg);
   const postAggParts: string[] = [];
@@ -990,94 +953,6 @@ export async function listBranches(db: DuckDBConnection, args: ListBranchesArgs)
   const orderDir = orderBy.direction.toUpperCase();
   if (orderDir !== 'ASC' && orderDir !== 'DESC') {
     throw new Error(`Invalid sort direction: ${orderBy.direction}`);
-  }
-
-  // Same allowlist gate as listTraces — see SAFE_PREFILTER_ORDER_FIELDS.
-  const canOrderInPrefilter = SAFE_PREFILTER_ORDER_FIELDS.has(orderBy.field);
-  const hasPostAggFilters = Object.keys(postAgg).length > 0 || !canOrderInPrefilter;
-
-  if (!hasPostAggFilters) {
-    // Fast path: order + paginate in the prefilter, reconstruct only the page.
-    // Only `startedAt` reaches here (per SAFE_PREFILTER_ORDER_FIELDS), and on
-    // start rows it lives in the `timestamp` column.
-    const prefilterOrderBy = `ORDER BY timestamp ${orderDir}`;
-    const offset = page * perPage;
-
-    const countSql = `
-      SELECT COUNT(*) as total
-      FROM span_events AS ${outerAlias}
-      ${prefilterWhere}
-    `;
-    const countResult = await db.query<{ total: number }>(countSql, prefilterParams);
-    const total = Number(countResult[0]?.total ?? 0);
-
-    if (total === 0) {
-      return {
-        pagination: { total: 0, page, perPage, hasMore: false },
-        liveCursor: createSyntheticNowCursor(),
-        branches: [],
-      };
-    }
-
-    const pageSql = `
-      WITH page_anchors AS (
-        SELECT traceId, spanId
-        FROM span_events AS ${outerAlias}
-        ${prefilterWhere}
-        ${prefilterOrderBy}
-        LIMIT ? OFFSET ?
-      )
-      ${SPAN_RECONSTRUCT_SELECT}
-      WHERE (traceId, spanId) IN (SELECT traceId, spanId FROM page_anchors)
-      GROUP BY traceId, spanId
-      ${buildOrderByClause(orderBy)}
-    `;
-    const rows = await db.query(pageSql, [...prefilterParams, perPage, offset]);
-    const liveCursorRows = await db.query<Record<string, unknown>>(
-      `
-        WITH candidate_anchors AS (
-          SELECT traceId, spanId
-          FROM span_events AS ${outerAlias}
-          ${prefilterWhere}
-        ),
-        branch_anchors AS (
-          ${SPAN_RECONSTRUCT_SELECT}
-          WHERE (traceId, spanId) IN (SELECT traceId, spanId FROM candidate_anchors)
-          GROUP BY traceId, spanId
-        ),
-        branch_activity AS (
-          SELECT traceId, spanId, ingestedAt, tieBreaker
-          FROM (
-            SELECT
-              traceId,
-              spanId,
-              ingestedAt,
-              traceId || ':' || spanId AS tieBreaker,
-              row_number() OVER (
-                PARTITION BY traceId, spanId
-                ORDER BY ingestedAt DESC, traceId || ':' || spanId DESC
-              ) AS rn
-            FROM span_events
-            WHERE ingestedAt IS NOT NULL
-              AND (traceId, spanId) IN (SELECT traceId, spanId FROM candidate_anchors)
-          )
-          WHERE rn = 1
-        )
-        SELECT branch_activity.ingestedAt, branch_activity.tieBreaker
-        FROM branch_anchors
-        INNER JOIN branch_activity USING (traceId, spanId)
-        ORDER BY branch_activity.ingestedAt DESC, branch_activity.tieBreaker DESC
-        LIMIT 1
-      `,
-      prefilterParams,
-    );
-    const spans = rows.map(row => rowToSpanRecord(row as Record<string, unknown>));
-
-    return {
-      pagination: { total, page, perPage, hasMore: (page + 1) * perPage < total },
-      liveCursor: (liveCursorRows[0] ? rowToLiveCursor(liveCursorRows[0]) : null) ?? createSyntheticNowCursor(),
-      branches: toTraceSpans(spans),
-    };
   }
 
   // Slow path: reconstruct the prefilter set, then apply post-agg filters.

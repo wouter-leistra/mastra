@@ -5,7 +5,6 @@ import {
   createIngestedAt,
   createLiveCursor,
   createSyntheticNowCursor,
-  isLiveCursorAfter,
   normalizeObservabilityListArgs,
   parseJson,
   parseJsonArray,

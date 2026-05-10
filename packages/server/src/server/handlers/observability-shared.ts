@@ -280,12 +280,26 @@ export function createObservabilityListQuerySchema<
   TFilter extends z.ZodObject<z.ZodRawShape>,
   TOrderBy extends z.ZodObject<z.ZodRawShape>,
 >(filterSchema: TFilter, orderBySchema: TOrderBy) {
+  const unwrapDefault = (schema: unknown) => {
+    const zodSchema = schema as z.ZodTypeAny;
+    return zodSchema instanceof z.ZodDefault ? zodSchema.unwrap() : zodSchema;
+  };
+  const paginationShape = paginationArgsSchema.shape as unknown as Record<string, z.ZodTypeAny>;
+  const orderByShape = orderBySchema.shape as unknown as Record<string, z.ZodTypeAny>;
+
+  const pageSchema = unwrapDefault(paginationShape.page);
+  const perPageSchema = unwrapDefault(paginationShape.perPage);
+  const fieldSchema = unwrapDefault(orderByShape.field!);
+  const directionSchema = unwrapDefault(orderByShape.direction!);
+
   return wrapSchemaForQueryParams(
     z
       .object({
         ...filterSchema.shape,
-        ...paginationArgsSchema.shape,
-        ...orderBySchema.shape,
+        page: pageSchema,
+        perPage: perPageSchema,
+        field: fieldSchema,
+        direction: directionSchema,
         mode: listModeSchema.optional(),
         after: liveCursorSchema.optional(),
         limit: deltaLimitSchema,

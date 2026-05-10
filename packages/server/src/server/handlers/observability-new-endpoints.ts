@@ -472,6 +472,7 @@ export const GET_TAGS = createNewRoute(NEW_ROUTE_DEFS.GET_TAGS, {
 });
 
 export const NEW_ROUTES = {
+  LIST_METRICS,
   LIST_LOGS,
   LIST_SCORES,
   CREATE_SCORE,
