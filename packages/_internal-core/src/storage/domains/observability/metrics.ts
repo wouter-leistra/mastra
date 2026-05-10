@@ -194,11 +194,11 @@ export const metricsOrderBySchema = z
 
 export const listMetricsArgsSchema = z
   .object({
-    mode: listModeSchema.optional().describe('List mode (defaults to page mode when omitted)'),
+    mode: listModeSchema.optional(),
     filters: metricsFilterSchema.optional(),
-    pagination: paginationArgsSchema.optional().describe('Pagination settings'),
-    orderBy: metricsOrderBySchema.optional().describe('Ordering configuration'),
-    after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
+    pagination: paginationArgsSchema.optional(),
+    orderBy: metricsOrderBySchema.optional(),
+    after: liveCursorSchema.optional(),
     limit: deltaLimitSchema,
   })
   .strict()
@@ -218,7 +218,7 @@ export const listMetricsResponseSchema = z
   .object({
     pagination: paginationInfoSchema.optional(),
     delta: deltaInfoSchema.optional(),
-    liveCursor: liveCursorSchema.nullable().optional().describe('Cursor for subsequent delta polling'),
+    liveCursor: liveCursorSchema.nullable().optional(),
     metrics: z.array(metricRecordSchema),
   })
   .describe('Response from listing metrics in either page or delta mode');

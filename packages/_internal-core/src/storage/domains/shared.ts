@@ -76,13 +76,15 @@ export const liveCursorSchema = z
     ingestedAt: z.coerce.date().describe('Backend-generated ingestion timestamp for cursor ordering'),
     tieBreaker: z.string().min(1).describe('Stable row identity used to break same-timestamp ties'),
   })
-  .describe('Cursor for resuming live observability list updates');
+  .describe('Cursor for delta polling of new data.');
 
 /** Public live cursor type used across observability list endpoints. */
 export type LiveCursor = z.output<typeof liveCursorSchema>;
 
 /** Explicit list mode selector for observability list endpoints. */
-export const listModeSchema = z.enum(['page', 'delta']).describe("List mode: 'page' | 'delta'");
+export const listModeSchema = z
+  .enum(['page', 'delta'])
+  .describe("List mode: 'page' | 'delta', defaults to 'page' when omitted.");
 
 /** Max number of updates returned from a delta poll window. */
 export const deltaLimitSchema = z.coerce

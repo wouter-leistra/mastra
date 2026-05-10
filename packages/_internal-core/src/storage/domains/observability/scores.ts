@@ -202,11 +202,11 @@ export const scoresOrderBySchema = z
 
 export const listScoresArgsSchema = z
   .object({
-    mode: listModeSchema.optional().describe('List mode (defaults to page mode when omitted)'),
+    mode: listModeSchema.optional(),
     filters: scoresFilterSchema.optional(),
-    pagination: paginationArgsSchema.optional().describe('Pagination settings'),
-    orderBy: scoresOrderBySchema.optional().describe('Ordering configuration'),
-    after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
+    pagination: paginationArgsSchema.optional(),
+    orderBy: scoresOrderBySchema.optional(),
+    after: liveCursorSchema.optional(),
     limit: deltaLimitSchema,
   })
   .strict()
@@ -226,7 +226,7 @@ export const listScoresResponseSchema = z
   .object({
     pagination: paginationInfoSchema.optional(),
     delta: deltaInfoSchema.optional(),
-    liveCursor: liveCursorSchema.nullable().optional().describe('Cursor for subsequent delta polling'),
+    liveCursor: liveCursorSchema.nullable().optional(),
     scores: z.array(scoreRecordSchema),
   })
   .describe('Response from listing scores in either page or delta mode');

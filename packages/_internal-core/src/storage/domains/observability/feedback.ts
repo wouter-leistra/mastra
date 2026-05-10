@@ -227,11 +227,11 @@ export const feedbackOrderBySchema = z
 
 export const listFeedbackArgsSchema = z
   .object({
-    mode: listModeSchema.optional().describe('List mode (defaults to page mode when omitted)'),
+    mode: listModeSchema.optional(),
     filters: z.preprocess(normalizeLegacyFeedbackActor, feedbackFilterObjectSchema).optional(),
-    pagination: paginationArgsSchema.optional().describe('Pagination settings'),
-    orderBy: feedbackOrderBySchema.optional().describe('Ordering configuration'),
-    after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
+    pagination: paginationArgsSchema.optional(),
+    orderBy: feedbackOrderBySchema.optional(),
+    after: liveCursorSchema.optional(),
     limit: deltaLimitSchema,
   })
   .strict()
@@ -251,7 +251,7 @@ export const listFeedbackResponseSchema = z
   .object({
     pagination: paginationInfoSchema.optional(),
     delta: deltaInfoSchema.optional(),
-    liveCursor: liveCursorSchema.nullable().optional().describe('Cursor for subsequent delta polling'),
+    liveCursor: liveCursorSchema.nullable().optional(),
     feedback: z.array(feedbackRecordSchema),
   })
   .describe('Response from listing feedback in either page or delta mode');

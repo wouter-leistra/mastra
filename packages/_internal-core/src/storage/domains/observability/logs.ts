@@ -143,11 +143,11 @@ export const logsOrderBySchema = z
 /** Schema for listLogs operation arguments */
 export const listLogsArgsSchema = z
   .object({
-    mode: listModeSchema.optional().describe('List mode (defaults to page mode when omitted)'),
+    mode: listModeSchema.optional(),
     filters: logsFilterSchema.optional().describe('Optional filters to apply'),
-    pagination: paginationArgsSchema.optional().describe('Pagination settings'),
-    orderBy: logsOrderBySchema.optional().describe('Ordering configuration'),
-    after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
+    pagination: paginationArgsSchema.optional(),
+    orderBy: logsOrderBySchema.optional(),
+    after: liveCursorSchema.optional(),
     limit: deltaLimitSchema,
   })
   .strict()
@@ -167,7 +167,7 @@ export const listLogsResponseSchema = z
   .object({
     pagination: paginationInfoSchema.optional(),
     delta: deltaInfoSchema.optional(),
-    liveCursor: liveCursorSchema.nullable().optional().describe('Cursor for subsequent delta polling'),
+    liveCursor: liveCursorSchema.nullable().optional(),
     logs: z.array(logRecordSchema),
   })
   .describe('Response from listing logs in either page or delta mode');

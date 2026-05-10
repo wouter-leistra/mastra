@@ -524,11 +524,11 @@ export const tracesOrderBySchema = z
  */
 export const listTracesArgsSchema = z
   .object({
-    mode: listModeSchema.optional().describe('List mode (defaults to page mode when omitted)'),
+    mode: listModeSchema.optional(),
     filters: tracesFilterSchema.optional().describe('Optional filters to apply'),
-    pagination: paginationArgsSchema.optional().describe('Pagination settings'),
-    orderBy: tracesOrderBySchema.optional().describe('Ordering configuration'),
-    after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
+    pagination: paginationArgsSchema.optional(),
+    orderBy: tracesOrderBySchema.optional(),
+    after: liveCursorSchema.optional(),
     limit: deltaLimitSchema,
   })
   .strict()
@@ -547,7 +547,7 @@ export type ListTracesArgs = z.input<typeof listTracesArgsSchema>;
 export const listTracesResponseSchema = z.object({
   pagination: paginationInfoSchema.optional(),
   delta: deltaInfoSchema.optional(),
-  liveCursor: liveCursorSchema.nullable().optional().describe('Cursor for subsequent delta polling'),
+  liveCursor: liveCursorSchema.nullable().optional(),
   spans: z.array(traceSpanSchema),
 });
 
@@ -627,11 +627,11 @@ export const branchesOrderBySchema = z
  */
 export const listBranchesArgsSchema = z
   .object({
-    mode: listModeSchema.optional().describe('List mode (defaults to page mode when omitted)'),
+    mode: listModeSchema.optional(),
     filters: branchesFilterSchema.optional().describe('Optional filters to apply'),
-    pagination: paginationArgsSchema.optional().describe('Pagination settings'),
-    orderBy: branchesOrderBySchema.optional().describe('Ordering configuration'),
-    after: liveCursorSchema.optional().describe('Resume cursor from a prior page or delta response'),
+    pagination: paginationArgsSchema.optional(),
+    orderBy: branchesOrderBySchema.optional(),
+    after: liveCursorSchema.optional(),
     limit: deltaLimitSchema,
   })
   .strict()
@@ -657,7 +657,7 @@ export type ListBranchesArgs = z.input<typeof listBranchesArgsSchema>;
 export const listBranchesResponseSchema = z.object({
   pagination: paginationInfoSchema.optional(),
   delta: deltaInfoSchema.optional(),
-  liveCursor: liveCursorSchema.nullable().optional().describe('Cursor for subsequent delta polling'),
+  liveCursor: liveCursorSchema.nullable().optional(),
   branches: z.array(traceSpanSchema),
 });
 
